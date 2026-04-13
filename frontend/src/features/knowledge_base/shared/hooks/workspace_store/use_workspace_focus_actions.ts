@@ -1,6 +1,13 @@
 import type { Dispatch, SetStateAction } from 'react';
 
-import type { WorkspaceTab } from '../../types/knowledge_base_types';
+import type {
+  GraphDataView,
+  GraphFocusCommand,
+  GraphLayerMode,
+  GraphViewIntent,
+  GraphViewMode,
+  WorkspaceTab,
+} from '../../types/knowledge_base_types';
 
 interface WorkspaceFocusActionsProps {
   default_graph_density: number;
@@ -8,14 +15,16 @@ interface WorkspaceFocusActionsProps {
   selected_node_id: string | null;
   set_active_workspace: Dispatch<SetStateAction<WorkspaceTab>>;
   set_is_source_library_open: Dispatch<SetStateAction<boolean>>;
-  set_include_paragraphs: Dispatch<SetStateAction<boolean>>;
   set_selected_edge_id: Dispatch<SetStateAction<string | null>>;
   set_selected_node_id: Dispatch<SetStateAction<string | null>>;
   set_highlighted_node_ids: Dispatch<SetStateAction<string[]>>;
   set_highlighted_edge_ids: Dispatch<SetStateAction<string[]>>;
   set_selected_source_browser_id: Dispatch<SetStateAction<string | null>>;
   set_selected_source_ids: Dispatch<SetStateAction<string[]>>;
+  set_graph_data_view: (view: GraphDataView) => void;
+  open_evidence_graph: (payload?: { node_ids?: string[]; edge_ids?: string[] }) => void;
   set_density: Dispatch<SetStateAction<number>>;
+  set_graph_focus_command: Dispatch<SetStateAction<GraphFocusCommand | null>>;
 }
 
 interface CitationFocusOptions {
@@ -30,15 +39,28 @@ export function use_workspace_focus_actions(props: WorkspaceFocusActionsProps) {
     selected_node_id,
     set_active_workspace,
     set_is_source_library_open,
-    set_include_paragraphs,
     set_selected_edge_id,
     set_selected_node_id,
     set_highlighted_node_ids,
     set_highlighted_edge_ids,
     set_selected_source_browser_id,
     set_selected_source_ids,
+    set_graph_data_view,
+    open_evidence_graph,
     set_density,
+    set_graph_focus_command,
   } = props;
+
+  function layer_modes_for_graph_data_view(graph_data_view: GraphDataView): GraphLayerMode[] {
+    return [graph_data_view];
+  }
+
+  function issue_graph_focus_command(command: Omit<GraphFocusCommand, 'id'>): void {
+    set_graph_focus_command((current) => ({
+      ...command,
+      id: (current?.id ?? 0) + 1,
+    }));
+  }
 
   function unique_ids(values: string[]): string[] {
     return Array.from(new Set(values.filter(Boolean)));
@@ -75,39 +97,122 @@ export function use_workspace_focus_actions(props: WorkspaceFocusActionsProps) {
     return null;
   }
 
+  function apply_graph_focus(options: {
+    target: GraphFocusCommand['target'];
+    reason: GraphFocusCommand['reason'];
+    view_intent?: GraphViewIntent;
+    graph_view_mode: GraphViewMode;
+    selected_node_id: string | null;
+    selected_edge_id: string | null;
+    highlighted_node_ids: string[];
+    highlighted_edge_ids: string[];
+    graph_data_view?: GraphDataView;
+    anchor_node_ids?: string[];
+    anchor_edge_ids?: string[];
+    source_ids?: string[];
+    layer_modes?: GraphLayerMode[];
+    viewport_action?: GraphFocusCommand['viewport_action'];
+    source_browser_id?: string | null;
+    source_library_open?: boolean;
+    active_workspace?: WorkspaceTab;
+  }): void {
+    const source_ids = options.source_ids ?? [];
+    const graph_data_view = options.graph_data_view ?? 'semantic';
+    const layer_modes = options.layer_modes ?? layer_modes_for_graph_data_view(graph_data_view);
+    const active_workspace =
+      options.active_workspace ?? (options.target === 'source-browser' ? 'chat' : 'graph');
+    const source_library_open = options.source_library_open ?? options.target === 'source-browser';
+
+    set_active_workspace(active_workspace);
+    set_is_source_library_open(source_library_open);
+    set_selected_source_browser_id(options.source_browser_id ?? source_ids[0] ?? null);
+    set_selected_source_ids(source_ids);
+    set_graph_data_view(graph_data_view);
+    set_selected_node_id(options.selected_node_id);
+    set_selected_edge_id(options.selected_edge_id);
+    set_highlighted_node_ids(options.highlighted_node_ids);
+    set_highlighted_edge_ids(options.highlighted_edge_ids);
+    if (graph_data_view === 'evidence') {
+      open_evidence_graph({
+        node_ids: options.anchor_node_ids,
+        edge_ids: options.anchor_edge_ids,
+      });
+    }
+    issue_graph_focus_command({
+      target: options.target,
+      reason: options.reason,
+      graph_data_view,
+      view_intent: options.view_intent ?? 'reading',
+      graph_view_mode: options.graph_view_mode,
+      selected_node_id: options.selected_node_id,
+      selected_edge_id: options.selected_edge_id,
+      highlighted_node_ids: options.highlighted_node_ids,
+      highlighted_edge_ids: options.highlighted_edge_ids,
+      source_ids,
+      layer_modes,
+      viewport_action: options.viewport_action ?? 'focus-selection',
+    });
+  }
+
   function focus_entity(entity_id: string): void {
-    set_active_workspace('graph');
-    set_include_paragraphs(true);
-    set_selected_edge_id(null);
-    set_selected_node_id(`entity:${entity_id}`);
-    set_highlighted_node_ids([`entity:${entity_id}`]);
-    set_highlighted_edge_ids([]);
+    apply_graph_focus({
+      target: 'graph',
+      reason: 'entity',
+      view_intent: 'reading',
+      graph_view_mode: 'global',
+      selected_node_id: `entity:${entity_id}`,
+      selected_edge_id: null,
+      highlighted_node_ids: [`entity:${entity_id}`],
+      highlighted_edge_ids: [],
+      graph_data_view: 'semantic',
+    });
   }
 
   function focus_relation(relation_id: string): void {
-    set_active_workspace('graph');
-    set_selected_node_id(null);
-    set_selected_edge_id(`relation:${relation_id}`);
-    set_highlighted_node_ids([]);
-    set_highlighted_edge_ids([`relation:${relation_id}`]);
+    apply_graph_focus({
+      target: 'graph',
+      reason: 'relation',
+      view_intent: 'reading',
+      graph_view_mode: 'global',
+      selected_node_id: null,
+      selected_edge_id: `relation:${relation_id}`,
+      highlighted_node_ids: [],
+      highlighted_edge_ids: [`relation:${relation_id}`],
+      graph_data_view: 'semantic',
+    });
   }
 
   function focus_source(source_id: string): void {
-    set_active_workspace('chat');
-    set_is_source_library_open(true);
-    set_selected_source_browser_id(source_id);
-    set_selected_source_ids([source_id]);
-    set_highlighted_node_ids([`source:${source_id}`]);
-    set_highlighted_edge_ids([]);
+    apply_graph_focus({
+      target: 'source-browser',
+      reason: 'source',
+      view_intent: 'reading',
+      graph_view_mode: 'global',
+      selected_node_id: null,
+      selected_edge_id: null,
+      highlighted_node_ids: [`source:${source_id}`],
+      highlighted_edge_ids: [],
+      source_ids: [source_id],
+      graph_data_view: 'semantic',
+      source_browser_id: source_id,
+      active_workspace: 'chat',
+      source_library_open: true,
+    });
   }
 
   function focus_paragraph(paragraph_id: string): void {
-    set_active_workspace('graph');
-    set_include_paragraphs(true);
-    set_selected_edge_id(null);
-    set_selected_node_id(`paragraph:${paragraph_id}`);
-    set_highlighted_node_ids([`paragraph:${paragraph_id}`]);
-    set_highlighted_edge_ids([]);
+    apply_graph_focus({
+      target: 'graph',
+      reason: 'paragraph',
+      view_intent: 'reading',
+      graph_view_mode: 'global',
+      selected_node_id: `paragraph:${paragraph_id}`,
+      selected_edge_id: null,
+      highlighted_node_ids: [`paragraph:${paragraph_id}`],
+      highlighted_edge_ids: [],
+      graph_data_view: 'evidence',
+      anchor_node_ids: [`paragraph:${paragraph_id}`],
+    });
   }
 
   function focus_citation(
@@ -118,21 +223,26 @@ export function use_workspace_focus_actions(props: WorkspaceFocusActionsProps) {
     const semantic_ids = semantic_highlight_ids();
     const anchor_node_id = resolve_citation_anchor(options);
 
-    set_active_workspace('graph');
-    set_is_source_library_open(false);
-    set_selected_source_browser_id(source_id);
-    set_selected_source_ids([source_id]);
-    set_include_paragraphs(true);
-    set_selected_edge_id(null);
-    set_selected_node_id(anchor_node_id);
-    set_highlighted_node_ids(
-      unique_ids([
+    apply_graph_focus({
+      target: 'graph',
+      reason: 'citation',
+      view_intent: 'reading',
+      graph_view_mode: 'global',
+      selected_node_id: anchor_node_id,
+      selected_edge_id: null,
+      highlighted_node_ids: unique_ids([
         ...semantic_ids,
         `source:${source_id}`,
         `paragraph:${paragraph_id}`,
       ]),
-    );
-    set_highlighted_edge_ids([]);
+      highlighted_edge_ids: [],
+      source_ids: [source_id],
+      graph_data_view: 'evidence',
+      anchor_node_ids: unique_ids(
+        [anchor_node_id, `paragraph:${paragraph_id}`].filter(Boolean) as string[],
+      ),
+      source_browser_id: source_id,
+    });
   }
 
   function clear_highlights(): void {
@@ -161,7 +271,7 @@ export function use_workspace_focus_actions(props: WorkspaceFocusActionsProps) {
 
   function reset_graph_filters(): void {
     set_selected_source_ids([]);
-    set_include_paragraphs(true);
+    set_graph_data_view('semantic');
     set_density(default_graph_density);
   }
 

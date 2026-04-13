@@ -1,10 +1,12 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 
 import { ParagraphEvidencePreview } from '../../shared/components/paragraph_evidence_preview';
 import type { AnswerCitationRecord } from '../../shared/types/knowledge_base_types';
 
 interface ChatSourcesSectionProps {
   citations: AnswerCitationRecord[];
+  excluded_source_ids: string[];
+  on_toggle_source_exclusion: (source_id: string) => void;
   on_view_in_graph: (
     source_id: string,
     paragraph_id: string,
@@ -19,11 +21,17 @@ interface ChatSourcesSectionProps {
 const PAGE_SIZE = 3;
 
 function pagination_label(page: number, page_count: number): string {
-  return `第 ${page} / ${page_count} 页`;
+  return `第 ${page} 页 / 共 ${page_count} 页`;
 }
 
 export function ChatSourcesSection(props: ChatSourcesSectionProps) {
-  const { citations, on_view_in_graph, on_focus_paragraph } = props;
+  const {
+    citations,
+    excluded_source_ids,
+    on_toggle_source_exclusion,
+    on_view_in_graph,
+    on_focus_paragraph,
+  } = props;
   const [open, set_open] = useState(false);
   const [page, set_page] = useState(1);
 
@@ -33,6 +41,10 @@ export function ChatSourcesSection(props: ChatSourcesSectionProps) {
     return citations.slice(start, start + PAGE_SIZE);
   }, [citations, page]);
 
+  useEffect(() => {
+    set_page((current) => Math.min(current, page_count));
+  }, [page_count]);
+
   if (!citations.length) {
     return null;
   }
@@ -40,64 +52,72 @@ export function ChatSourcesSection(props: ChatSourcesSectionProps) {
   return (
     <section className='kb-chat-sources'>
       <button className='kb-chat-sources-toggle' onClick={() => set_open((current) => !current)} type='button'>
-        <strong>{open ? '隐藏来源' : '显示来源'}</strong>
-        <span>{`${citations.length} 条命中`}</span>
+        <strong>{open ? '收起来源' : '显示来源'}</strong>
+        <span>{`${citations.length} 条引用`}</span>
       </button>
 
       {open ? (
         <div className='kb-chat-sources-body'>
           <div className='kb-chat-sources-scroll'>
-            {visible_citations.map((citation) => (
-              <article className='kb-chat-source-card' key={`${citation.source_id}-${citation.paragraph_id}`}>
-                <div className='kb-chat-source-head'>
-                  <strong>{citation.source_name}</strong>
-                  <span>{`匹配度 ${citation.score.toFixed(2)}`}</span>
-                </div>
+            {visible_citations.map((citation) => {
+              const excluded = excluded_source_ids.includes(citation.source_id);
+              return (
+                <article className='kb-chat-source-card' key={`${citation.source_id}-${citation.paragraph_id}`}>
+                  <div className='kb-chat-source-head'>
+                    <strong>{citation.source_name}</strong>
+                    <span>{`匹配度 ${citation.score.toFixed(2)}`}</span>
+                  </div>
 
-                <p className='kb-chat-source-reason'>
-                  {citation.match_reason ?? '当前回答命中了这条来源证据。'}
-                </p>
+                  <p className='kb-chat-source-reason'>
+                    {citation.match_reason ?? '该证据参与了当前回答。'}
+                  </p>
 
-                <ParagraphEvidencePreview
-                  render_kind={citation.render_kind}
-                  rendered_html={citation.rendered_html}
-                  text_content={citation.excerpt}
-                />
+                  <ParagraphEvidencePreview
+                    render_kind={citation.render_kind}
+                    rendered_html={citation.rendered_html}
+                    text_content={citation.snippet ?? citation.excerpt}
+                  />
 
-                <div className='kb-chat-source-meta'>
-                  {citation.source_kind ? <span>{`类型：${citation.source_kind}`}</span> : null}
-                  {citation.worksheet_name ? <span>{`工作表：${citation.worksheet_name}`}</span> : null}
-                  {citation.page_number !== null && citation.page_number !== undefined ? (
-                    <span>{`页码：${citation.page_number}`}</span>
-                  ) : null}
-                  {citation.paragraph_position !== null && citation.paragraph_position !== undefined ? (
-                    <span>{`段落：${citation.paragraph_position + 1}`}</span>
-                  ) : null}
-                </div>
+                  <div className='kb-chat-source-meta'>
+                    {citation.file_path ? <span>{citation.file_path}</span> : null}
+                    {citation.version_id ? <span>{`版本 ${citation.version_id}`}</span> : null}
+                    {citation.worksheet_name ? <span>{citation.worksheet_name}</span> : null}
+                    {citation.page_number !== null && citation.page_number !== undefined ? (
+                      <span>{`第 ${citation.page_number} 页`}</span>
+                    ) : null}
+                  </div>
 
-                <div className='kb-button-row'>
-                  <button
-                    className='kb-secondary-button'
-                    onClick={() =>
-                      on_view_in_graph(citation.source_id, citation.paragraph_id, {
-                        preferred_anchor_node_id: citation.preferred_anchor_node_id ?? null,
-                        anchor_node_ids: citation.anchor_node_ids ?? [],
-                      })
-                    }
-                    type='button'
-                  >
-                    在图谱中查看
-                  </button>
-                  <button
-                    className='kb-secondary-button'
-                    onClick={() => on_focus_paragraph(citation.paragraph_id)}
-                    type='button'
-                  >
-                    定位段落
-                  </button>
-                </div>
-              </article>
-            ))}
+                  <div className='kb-button-row'>
+                    <button
+                      className='kb-secondary-button'
+                      onClick={() =>
+                        on_view_in_graph(citation.source_id, citation.paragraph_id, {
+                          preferred_anchor_node_id: citation.preferred_anchor_node_id ?? null,
+                          anchor_node_ids: citation.anchor_node_ids ?? [],
+                        })
+                      }
+                      type='button'
+                    >
+                      在图谱中查看
+                    </button>
+                    <button
+                      className='kb-secondary-button'
+                      onClick={() => on_focus_paragraph(citation.paragraph_id)}
+                      type='button'
+                    >
+                      定位段落
+                    </button>
+                    <button
+                      className='kb-secondary-button'
+                      onClick={() => on_toggle_source_exclusion(citation.source_id)}
+                      type='button'
+                    >
+                      {excluded ? '重新纳入来源' : '排除该来源'}
+                    </button>
+                  </div>
+                </article>
+              );
+            })}
           </div>
 
           {page_count > 1 ? (

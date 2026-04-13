@@ -1,6 +1,15 @@
 from fastapi.testclient import TestClient
 
 
+CHAT_SCOPE = {
+    "mode": "all",
+    "source_ids": [],
+    "version_mode": "latest",
+    "version_id": None,
+    "excluded_source_ids": [],
+}
+
+
 def _import_source_for_chat(client: TestClient) -> None:
     response = client.post(
         "/api/kb/imports/paste",
@@ -18,7 +27,8 @@ def test_model_config_routes(client: TestClient) -> None:
     get_response = client.get("/api/kb/config/model")
     assert get_response.status_code == 200
     current_config = get_response.json()
-    assert current_config["has_api_key"] is True
+    assert current_config["has_api_key"] is False
+    assert current_config["api_key_source"] == "none"
 
     update_response = client.put(
         "/api/kb/config/model",
@@ -64,7 +74,7 @@ def test_chat_message_returns_sources_and_diagnostics(client: TestClient) -> Non
 
     message_response = client.post(
         f"/api/kb/chat/sessions/{session['id']}/messages",
-        json={"content": "Alpha 项目是谁负责的？", "top_k": 4},
+        json={"content": "Alpha 项目是谁负责的？", "scope": CHAT_SCOPE, "top_k": 4},
     )
     assert message_response.status_code == 200, message_response.text
     detail = message_response.json()
@@ -74,6 +84,10 @@ def test_chat_message_returns_sources_and_diagnostics(client: TestClient) -> Non
     assistant_messages = [message for message in detail["messages"] if message["role"] == "assistant"]
     assert assistant_messages
     latest_assistant = assistant_messages[-1]
+    user_messages = [message for message in detail["messages"] if message["role"] == "user"]
+    assert user_messages
+    assert user_messages[-1]["scope"]["mode"] == "all"
+    assert user_messages[-1]["scope"]["excluded_source_ids"] == []
     assert latest_assistant["citations"]
     assert latest_assistant["execution"]["matched_paragraph_count"] >= 1
     assert "retrieval_trace" in latest_assistant

@@ -48,9 +48,9 @@ export function ModelConfigModal(props: ModelConfigModalProps) {
       <section aria-modal='true' className='kb-modal kb-settings-modal' onClick={(event) => event.stopPropagation()} role='dialog'>
         <div className='kb-modal-header'>
           <div>
-            <span className='kb-context-label'>Settings</span>
-            <h3>API / LLM 配置</h3>
-            <p>复用现有后端配置结构，把聊天和导入所需参数集中管理。</p>
+            <span className='kb-context-label'>模型配置</span>
+            <h3>API / 模型配置</h3>
+            <p>模型配置保存在本地知识库中，`.env` 只保留运行级配置，不再承载 provider、model 或 API key。</p>
           </div>
           <button className='kb-secondary-button' onClick={on_close} type='button'>
             关闭
@@ -148,13 +148,28 @@ export function ModelConfigModal(props: ModelConfigModalProps) {
           </div>
 
           <div className='kb-button-row'>
-            <button className='kb-primary-button' disabled={is_saving_model_configuration || is_model_configuration_loading} onClick={() => void save_model_configuration()} type='button'>
-              {is_saving_model_configuration ? '保存中...' : '保存配置'}
+            <button
+              className='kb-primary-button'
+              disabled={is_saving_model_configuration || is_model_configuration_loading}
+              onClick={() => void save_model_configuration()}
+              type='button'
+            >
+              {is_saving_model_configuration ? '保存中…' : '保存配置'}
             </button>
-            <button className='kb-secondary-button' disabled={is_testing_model_configuration || is_saving_model_configuration} onClick={() => void run_model_configuration_test()} type='button'>
-              {is_testing_model_configuration ? '测试中...' : '测试连通性'}
+            <button
+              className='kb-secondary-button'
+              disabled={is_testing_model_configuration || is_saving_model_configuration}
+              onClick={() => void run_model_configuration_test()}
+              type='button'
+            >
+              {is_testing_model_configuration ? '测试中…' : '测试连通性'}
             </button>
-            <button className='kb-secondary-button' disabled={is_model_configuration_loading} onClick={() => void refresh_model_configuration()} type='button'>
+            <button
+              className='kb-secondary-button'
+              disabled={is_model_configuration_loading}
+              onClick={() => void refresh_model_configuration()}
+              type='button'
+            >
               重新加载
             </button>
           </div>

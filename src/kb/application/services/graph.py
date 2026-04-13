@@ -13,6 +13,7 @@ from src.kb.common import (
     build_source_node_id,
 )
 from src.kb.storage import GraphStore, SourceStore, VectorIndex
+from src.kb.application.retrieval.types import KBScope
 
 SPREADSHEET_FILE_TYPES: set[str] = {"xlsx", "xlsm", "xls"}
 MULTIPLE_SOURCE_SCOPE = "__multiple__"
@@ -29,50 +30,256 @@ class GraphService:
     def build_graph(
         self,
         *,
-        source_ids: list[str] | None = None,
-        include_paragraphs: bool = True,
+        scope: dict[str, Any],
+        view: str = "semantic",
         density: int = 100,
-    ) -> dict[str, list[dict[str, Any]]]:
-        explicit_source_scope = bool(source_ids)
-        source_rows = self.graph_store.list_graph_sources(source_ids)
+        anchor_node_ids: list[str] | None = None,
+        anchor_edge_ids: list[str] | None = None,
+    ) -> dict[str, Any]:
+        normalized_scope = KBScope.from_payload(scope)
+        source_version_pairs = self.source_store.resolve_scope_pairs(normalized_scope)
+        if not source_version_pairs:
+            raise ValueError("Graph scope did not resolve to any active source snapshots.")
+        visible_source_ids = list({str(pair["source_id"]) for pair in source_version_pairs})
+        source_rows = self.graph_store.list_graph_sources(visible_source_ids)
         visible_sources = [source for source in source_rows if self._is_graph_visible_source(source)]
         visible_source_ids = [str(source["id"]) for source in visible_sources]
         if not visible_source_ids:
-            return {"nodes": [], "edges": []}
-        source_name_by_id = {str(source["id"]): str(source["name"]) for source in visible_sources}
-
-        paragraph_rows = self.graph_store.list_graph_paragraphs(visible_source_ids)
-        paragraph_ids = {str(row["id"]) for row in paragraph_rows}
-        paragraph_source_id_by_id = {
-            str(row["id"]): str(row.get("source_id") or "")
-            for row in paragraph_rows
+            return {"view": str(view or "semantic").strip().lower() or "semantic", "nodes": [], "edges": []}
+        source_version_pairs = [
+            pair for pair in source_version_pairs if str(pair["source_id"]) in set(visible_source_ids)
+        ]
+        visible_source_version_keys = {
+            self._source_version_scope_key(str(pair["source_id"]), str(pair["version_id"]))
+            for pair in source_version_pairs
         }
-        entity_rows = self.graph_store.list_graph_entities(visible_source_ids)
-        manual_entity_rows = []
-        for entity in self.graph_store.list_entities():
-            metadata = dict(entity.get("metadata") or {})
-            if not bool(metadata.get("manual_created")):
-                continue
-            entity_source_id = str(metadata.get("source_id") or "").strip()
-            if explicit_source_scope and entity_source_id and entity_source_id not in visible_source_ids:
-                continue
-            if explicit_source_scope and not entity_source_id:
-                continue
-            manual_entity_rows.append(entity)
-        if manual_entity_rows:
-            entity_rows = list(
-                {
-                    str(entity["id"]): entity
-                    for entity in [*entity_rows, *manual_entity_rows]
-                }.values()
+        source_name_by_id = {str(source["id"]): str(source["name"]) for source in visible_sources}
+        normalized_view = str(view or "semantic").strip().lower() or "semantic"
+        if normalized_view == "semantic":
+            graph = self._build_semantic_graph(
+                source_version_pairs=source_version_pairs,
+                visible_sources=visible_sources,
+                source_name_by_id=source_name_by_id,
+                visible_source_version_keys=visible_source_version_keys,
+                density=density,
             )
-        relation_rows = self.graph_store.list_graph_relations(visible_source_ids)
-        manual_rows = self.graph_store.list_manual_relations()
-        paragraph_entity_links = self.graph_store.list_paragraph_entity_links(source_ids=visible_source_ids)
+        elif normalized_view == "structure":
+            graph = self._build_structure_graph(
+                source_version_pairs=source_version_pairs,
+                visible_sources=visible_sources,
+                source_name_by_id=source_name_by_id,
+            )
+        elif normalized_view == "evidence":
+            graph = self._build_evidence_graph(
+                source_version_pairs=source_version_pairs,
+                source_name_by_id=source_name_by_id,
+                visible_source_version_keys=visible_source_version_keys,
+                anchor_node_ids=anchor_node_ids or [],
+                anchor_edge_ids=anchor_edge_ids or [],
+            )
+        else:
+            raise ValueError(f"Unsupported graph view: {view}")
+
+        visible_node_ids = {str(node["id"]) for node in graph["nodes"]}
+        return {
+            "view": normalized_view,
+            "nodes": graph["nodes"],
+            "edges": self._prune_dangling_edges(graph["edges"], node_ids=visible_node_ids),
+        }
+
+    def _build_semantic_graph(
+        self,
+        *,
+        source_version_pairs: list[dict[str, Any]],
+        visible_sources: list[dict[str, Any]],
+        source_name_by_id: dict[str, str],
+        visible_source_version_keys: set[str],
+        density: int,
+    ) -> dict[str, list[dict[str, Any]]]:
+        entity_rows = self.graph_store.list_graph_entities(source_version_pairs)
+        manual_entity_rows = self._list_scoped_manual_entities(visible_source_version_keys)
+        entity_rows = list(
+            {
+                str(entity["id"]): entity
+                for entity in [*entity_rows, *manual_entity_rows]
+            }.values()
+        )
+        entity_by_id = {str(entity["id"]): entity for entity in entity_rows}
+        source_by_id = {
+            str(source["id"]): source
+            for source in visible_sources
+        }
+        semantic_edges: list[dict[str, Any]] = []
+
+        for relation in self.graph_store.list_graph_relations(source_version_pairs):
+            relation_edge_type = self._relation_edge_type(relation)
+            if self._is_structural_edge_type(relation_edge_type):
+                continue
+            subject_entity_id = str(relation["subject_entity_id"])
+            object_entity_id = str(relation["object_entity_id"])
+            if subject_entity_id not in entity_by_id or object_entity_id not in entity_by_id:
+                continue
+            display_label = self._relation_display_label(relation, relation_edge_type)
+            semantic_edges.append(
+                {
+                    "id": build_relation_edge_id(str(relation["id"])),
+                    "source": build_entity_node_id(subject_entity_id),
+                    "target": build_entity_node_id(object_entity_id),
+                    "type": relation_edge_type,
+                    "label": display_label,
+                    "display_label": display_label,
+                    "relation_kind_label": self._relation_kind_label(relation_edge_type),
+                    "source_name": self._relation_source_name(relation, source_name_by_id),
+                    "evidence_paragraph_id": str(relation.get("source_paragraph_id") or "") or None,
+                    "is_structural": False,
+                    "family": "semantic",
+                    "weight": max(1.0, float(relation.get("confidence") or 1.0)),
+                    "metadata": relation,
+                }
+            )
+
+        visible_entity_node_ids = {
+            build_entity_node_id(entity_id)
+            for entity_id in entity_by_id
+        }
+        for relation in self.graph_store.list_manual_relations():
+            subject_node_id = str(relation["subject_node_id"])
+            object_node_id = str(relation["object_node_id"])
+            if subject_node_id not in visible_entity_node_ids or object_node_id not in visible_entity_node_ids:
+                continue
+            semantic_edges.append(
+                {
+                    "id": build_manual_edge_id(str(relation["id"])),
+                    "source": subject_node_id,
+                    "target": object_node_id,
+                    "type": "manual",
+                    "label": str(relation["predicate"]),
+                    "display_label": str(relation["predicate"]),
+                    "relation_kind_label": "手工关系",
+                    "source_name": None,
+                    "evidence_paragraph_id": None,
+                    "is_structural": False,
+                    "family": "semantic",
+                    "weight": float(relation["weight"]),
+                    "metadata": relation,
+                }
+            )
+
+        kept_edges = self._apply_semantic_density_filter(semantic_edges, density=density)
+        kept_entity_node_ids = {
+            node_id
+            for edge in kept_edges
+            for node_id in (str(edge["source"]), str(edge["target"]))
+        }
+        provenance_edges: list[dict[str, Any]] = []
+        seen_provenance_edge_ids: set[str] = set()
+        connected_source_node_ids: set[str] = set()
+
+        for entity in entity_rows:
+            entity_id = str(entity["id"])
+            entity_node_id = build_entity_node_id(entity_id)
+            if entity_node_id not in kept_entity_node_ids:
+                continue
+            source_id = self._metadata_value(entity, "source_id")
+            if not source_id:
+                continue
+            source = source_by_id.get(source_id)
+            if source is None:
+                continue
+            provenance_edge_id = f"provenance:{source_id}:{entity_id}"
+            if provenance_edge_id in seen_provenance_edge_ids:
+                continue
+            seen_provenance_edge_ids.add(provenance_edge_id)
+            source_node_id = build_source_node_id(source_id)
+            connected_source_node_ids.add(source_node_id)
+            provenance_edges.append(
+                {
+                    "id": provenance_edge_id,
+                    "source": source_node_id,
+                    "target": entity_node_id,
+                    "type": "provenance",
+                    "label": "来源",
+                    "display_label": "来源",
+                    "relation_kind_label": "来源归属",
+                    "source_name": source_name_by_id.get(source_id),
+                    "evidence_paragraph_id": None,
+                    "is_structural": False,
+                    "family": "semantic",
+                    "weight": 0.75,
+                    "metadata": {
+                        "source_id": source_id,
+                        "version_id": self._metadata_value(entity, "version_id"),
+                        "entity_id": entity_id,
+                    },
+                }
+            )
 
         nodes: list[dict[str, Any]] = []
-        structural_edges: list[dict[str, Any]] = []
-        semantic_edges: list[dict[str, Any]] = []
+        for entity in entity_rows:
+            entity_id = str(entity["id"])
+            node_id = build_entity_node_id(entity_id)
+            if node_id not in kept_entity_node_ids:
+                continue
+            node_type = self._entity_node_type(entity)
+            nodes.append(
+                {
+                    "id": node_id,
+                    "type": node_type,
+                    "label": self._entity_node_label(entity),
+                    "display_label": self._entity_node_label(entity),
+                    "kind_label": self._node_kind_label(node_type),
+                    "source_name": self._resolve_entity_source_name(entity, source_name_by_id),
+                    "evidence_count": self._entity_evidence_count(entity),
+                    "size": self._entity_node_size(entity),
+                    "score": None,
+                    "family": "semantic",
+                    "metadata": entity,
+                }
+            )
+
+        for source in visible_sources:
+            source_id = str(source["id"])
+            source_node_id = build_source_node_id(source_id)
+            if source_node_id not in connected_source_node_ids:
+                continue
+            source_node_type = self._source_node_type(source)
+            nodes.append(
+                {
+                    "id": source_node_id,
+                    "type": source_node_type,
+                    "label": str(source["name"]),
+                    "display_label": str(source["name"]),
+                    "kind_label": self._node_kind_label(source_node_type),
+                    "source_name": str(source["name"]),
+                    "evidence_count": None,
+                    "size": self._source_node_size(source),
+                    "score": None,
+                    "family": "semantic",
+                    "metadata": source,
+                }
+            )
+
+        return {"nodes": nodes, "edges": [*kept_edges, *provenance_edges]}
+
+    def _build_structure_graph(
+        self,
+        *,
+        source_version_pairs: list[dict[str, Any]],
+        visible_sources: list[dict[str, Any]],
+        source_name_by_id: dict[str, str],
+    ) -> dict[str, list[dict[str, Any]]]:
+        paragraph_rows = self.graph_store.list_graph_paragraphs(source_version_pairs)
+        structure_entity_rows = [
+            entity
+            for entity in self.graph_store.list_graph_entities(source_version_pairs)
+            if self._entity_node_type(entity) in {"worksheet", "record"}
+        ]
+        structure_entity_by_id = {
+            str(entity["id"]): entity
+            for entity in structure_entity_rows
+        }
+        nodes: list[dict[str, Any]] = []
+        edges: list[dict[str, Any]] = []
 
         for source in visible_sources:
             source_id = str(source["id"])
@@ -88,48 +295,50 @@ class GraphService:
                     "evidence_count": int(dict(source.get("metadata") or {}).get("paragraph_count") or 0) or None,
                     "size": self._source_node_size(source),
                     "score": None,
+                    "family": "structure",
                     "metadata": source,
                 }
             )
 
-        if include_paragraphs:
-            for paragraph in paragraph_rows:
-                paragraph_id = str(paragraph["id"])
-                structural_edges.append(
-                    {
-                        "id": build_contains_edge_id(str(paragraph["source_id"]), paragraph_id),
-                        "source": build_source_node_id(str(paragraph["source_id"])),
-                        "target": build_paragraph_node_id(paragraph_id),
-                        "type": "contains",
-                        "label": "包含段落",
-                        "display_label": "包含段落",
-                        "relation_kind_label": "结构关系",
-                        "source_name": source_name_by_id.get(str(paragraph["source_id"])),
-                        "evidence_paragraph_id": paragraph_id,
-                        "is_structural": True,
-                        "weight": 1.0,
-                        "metadata": {"source_id": paragraph["source_id"], "paragraph_id": paragraph_id},
-                    }
-                )
-                nodes.append(
-                    {
-                        "id": build_paragraph_node_id(paragraph_id),
-                        "type": "paragraph",
-                        "label": self._paragraph_label(str(paragraph["content"])),
-                        "display_label": self._paragraph_label(str(paragraph["content"])),
-                        "kind_label": self._node_kind_label("paragraph"),
-                        "source_name": source_name_by_id.get(str(paragraph["source_id"])),
-                        "evidence_count": 1,
-                        "size": 3.0,
-                        "score": None,
-                        "metadata": paragraph,
-                    }
-                )
+        for paragraph in paragraph_rows:
+            paragraph_id = str(paragraph["id"])
+            source_id = str(paragraph["source_id"])
+            nodes.append(
+                {
+                    "id": build_paragraph_node_id(paragraph_id),
+                    "type": "paragraph",
+                    "label": self._paragraph_label(str(paragraph["content"])),
+                    "display_label": self._paragraph_label(str(paragraph["content"])),
+                    "kind_label": self._node_kind_label("paragraph"),
+                    "source_name": source_name_by_id.get(source_id),
+                    "evidence_count": 1,
+                    "size": 3.0,
+                    "score": None,
+                    "family": "structure",
+                    "metadata": paragraph,
+                }
+            )
+            edges.append(
+                {
+                    "id": build_contains_edge_id(source_id, paragraph_id),
+                    "source": build_source_node_id(source_id),
+                    "target": build_paragraph_node_id(paragraph_id),
+                    "type": "contains",
+                    "label": "包含段落",
+                    "display_label": "包含段落",
+                    "relation_kind_label": "结构关系",
+                    "source_name": source_name_by_id.get(source_id),
+                    "evidence_paragraph_id": paragraph_id,
+                    "is_structural": True,
+                    "family": "structure",
+                    "weight": 1.0,
+                    "metadata": {"source_id": source_id, "paragraph_id": paragraph_id},
+                }
+            )
 
-        for entity in entity_rows:
+        for entity in structure_entity_rows:
             entity_id = str(entity["id"])
             node_type = self._entity_node_type(entity)
-            source_name = self._resolve_entity_source_name(entity, source_name_by_id)
             nodes.append(
                 {
                     "id": build_entity_node_id(entity_id),
@@ -137,124 +346,403 @@ class GraphService:
                     "label": self._entity_node_label(entity),
                     "display_label": self._entity_node_label(entity),
                     "kind_label": self._node_kind_label(node_type),
-                    "source_name": source_name,
+                    "source_name": self._resolve_entity_source_name(entity, source_name_by_id),
                     "evidence_count": self._entity_evidence_count(entity),
                     "size": self._entity_node_size(entity),
                     "score": None,
+                    "family": "structure",
                     "metadata": entity,
                 }
             )
             if node_type == "worksheet":
                 source_id = self._metadata_value(entity, "source_id")
-                if source_id:
-                    structural_edges.append(
-                        {
-                            "id": build_sheet_edge_id(source_id, entity_id),
-                            "source": build_source_node_id(source_id),
-                            "target": build_entity_node_id(entity_id),
-                            "type": "contains_sheet",
-                            "label": "包含工作表",
-                            "display_label": "包含工作表",
-                            "relation_kind_label": "结构关系",
-                            "source_name": source_name_by_id.get(source_id),
-                            "evidence_paragraph_id": None,
-                            "is_structural": True,
-                            "weight": 1.0,
-                            "metadata": {
-                                "source_id": source_id,
-                                "entity_id": entity_id,
-                                "worksheet_name": self._metadata_value(entity, "worksheet_name"),
-                            },
-                        }
-                    )
-
-        if include_paragraphs:
-            for link in paragraph_entity_links:
-                paragraph_id = str(link["paragraph_id"])
-                if paragraph_id not in paragraph_ids:
+                if not source_id:
                     continue
-                semantic_edges.append(
+                edges.append(
                     {
-                        "id": build_mention_edge_id(paragraph_id, str(link["entity_id"])),
-                        "source": build_paragraph_node_id(paragraph_id),
-                        "target": build_entity_node_id(str(link["entity_id"])),
-                        "type": "mentions",
-                        "label": "提及",
-                        "display_label": "提及",
+                        "id": build_sheet_edge_id(source_id, entity_id),
+                        "source": build_source_node_id(source_id),
+                        "target": build_entity_node_id(entity_id),
+                        "type": "contains_sheet",
+                        "label": "包含工作表",
+                        "display_label": "包含工作表",
                         "relation_kind_label": "结构关系",
-                        "source_name": source_name_by_id.get(
-                            paragraph_source_id_by_id.get(paragraph_id, "")
-                        )
-                        or self._source_name_from_store(
-                            paragraph_source_id_by_id.get(paragraph_id, "")
-                        ),
-                        "evidence_paragraph_id": paragraph_id,
+                        "source_name": source_name_by_id.get(source_id),
+                        "evidence_paragraph_id": None,
                         "is_structural": True,
-                        "weight": max(1.0, float(link.get("mention_count") or 1)),
-                        "metadata": link,
+                        "family": "structure",
+                        "weight": 1.0,
+                        "metadata": {
+                            "source_id": source_id,
+                            "entity_id": entity_id,
+                            "worksheet_name": self._metadata_value(entity, "worksheet_name"),
+                        },
                     }
                 )
 
-        for relation in relation_rows:
+        for relation in self.graph_store.list_graph_relations(source_version_pairs):
             relation_edge_type = self._relation_edge_type(relation)
+            if relation_edge_type != "contains_record":
+                continue
+            subject_entity_id = str(relation["subject_entity_id"])
+            object_entity_id = str(relation["object_entity_id"])
+            if subject_entity_id not in structure_entity_by_id or object_entity_id not in structure_entity_by_id:
+                continue
             display_label = self._relation_display_label(relation, relation_edge_type)
-            semantic_edges.append(
+            edges.append(
                 {
                     "id": build_relation_edge_id(str(relation["id"])),
-                    "source": build_entity_node_id(str(relation["subject_entity_id"])),
-                    "target": build_entity_node_id(str(relation["object_entity_id"])),
+                    "source": build_entity_node_id(subject_entity_id),
+                    "target": build_entity_node_id(object_entity_id),
                     "type": relation_edge_type,
                     "label": display_label,
                     "display_label": display_label,
-                    "relation_kind_label": self._relation_kind_label(relation_edge_type),
+                    "relation_kind_label": "结构关系",
                     "source_name": self._relation_source_name(relation, source_name_by_id),
                     "evidence_paragraph_id": str(relation.get("source_paragraph_id") or "") or None,
-                    "is_structural": self._is_structural_edge_type(relation_edge_type),
+                    "is_structural": True,
+                    "family": "structure",
                     "weight": max(1.0, float(relation.get("confidence") or 1.0)),
                     "metadata": relation,
                 }
             )
 
-        visible_node_ids = {str(node["id"]) for node in nodes}
-        for relation in manual_rows:
-            subject_node_id = str(relation["subject_node_id"])
-            object_node_id = str(relation["object_node_id"])
-            if subject_node_id not in visible_node_ids or object_node_id not in visible_node_ids:
+        if not edges:
+            return {
+                "nodes": [
+                    node
+                    for node in nodes
+                    if str(node.get("type") or "") in {"source", "workbook"}
+                ],
+                "edges": [],
+            }
+
+        connected_node_ids = {
+            node_id
+            for edge in edges
+            for node_id in (str(edge["source"]), str(edge["target"]))
+        }
+        return {
+            "nodes": [node for node in nodes if str(node["id"]) in connected_node_ids],
+            "edges": edges,
+        }
+
+    def _build_evidence_graph(
+        self,
+        *,
+        source_version_pairs: list[dict[str, Any]],
+        source_name_by_id: dict[str, str],
+        visible_source_version_keys: set[str],
+        anchor_node_ids: list[str],
+        anchor_edge_ids: list[str],
+    ) -> dict[str, list[dict[str, Any]]]:
+        if not anchor_node_ids and not anchor_edge_ids:
+            raise ValueError("Evidence graph requires at least one anchor node or edge.")
+
+        paragraph_rows = self.graph_store.list_graph_paragraphs(source_version_pairs)
+        paragraph_by_id = {
+            str(paragraph["id"]): paragraph
+            for paragraph in paragraph_rows
+        }
+        paragraph_source_id_by_id = {
+            str(paragraph["id"]): str(paragraph.get("source_id") or "")
+            for paragraph in paragraph_rows
+        }
+        paragraph_entity_links = self.graph_store.list_paragraph_entity_links(source_version_pairs=source_version_pairs)
+        links_by_entity_id: dict[str, list[dict[str, Any]]] = {}
+        links_by_paragraph_id: dict[str, list[dict[str, Any]]] = {}
+        for link in paragraph_entity_links:
+            entity_id = str(link["entity_id"])
+            paragraph_id = str(link["paragraph_id"])
+            links_by_entity_id.setdefault(entity_id, []).append(link)
+            links_by_paragraph_id.setdefault(paragraph_id, []).append(link)
+
+        entity_rows = self.graph_store.list_graph_entities(source_version_pairs)
+        manual_entity_rows = self._list_scoped_manual_entities(visible_source_version_keys)
+        entity_rows = list(
+            {
+                str(entity["id"]): entity
+                for entity in [*entity_rows, *manual_entity_rows]
+            }.values()
+        )
+        entity_by_id = {str(entity["id"]): entity for entity in entity_rows}
+
+        selected_entity_ids: set[str] = set()
+        selected_paragraph_ids: set[str] = set()
+
+        for node_id in anchor_node_ids:
+            normalized_node_id = str(node_id or "").strip()
+            entity_id = self._entity_id_from_node_id(normalized_node_id)
+            if entity_id and entity_id in entity_by_id:
+                selected_entity_ids.add(entity_id)
                 continue
-            semantic_edges.append(
+            if normalized_node_id.startswith("paragraph:"):
+                paragraph_id = normalized_node_id.split(":", maxsplit=1)[1]
+                if paragraph_id in paragraph_by_id:
+                    selected_paragraph_ids.add(paragraph_id)
+                    for link in links_by_paragraph_id.get(paragraph_id, []):
+                        linked_entity_id = str(link["entity_id"])
+                        if linked_entity_id in entity_by_id:
+                            selected_entity_ids.add(linked_entity_id)
+                continue
+            if normalized_node_id.startswith("source:"):
+                source_id = normalized_node_id.split(":", maxsplit=1)[1]
+                source_paragraph_ids = [
+                    str(paragraph["id"])
+                    for paragraph in paragraph_rows
+                    if str(paragraph.get("source_id") or "") == source_id
+                ][:12]
+                selected_paragraph_ids.update(source_paragraph_ids)
+                for paragraph_id in source_paragraph_ids:
+                    for link in links_by_paragraph_id.get(paragraph_id, []):
+                        linked_entity_id = str(link["entity_id"])
+                        if linked_entity_id in entity_by_id:
+                            selected_entity_ids.add(linked_entity_id)
+
+        for edge_id in anchor_edge_ids:
+            normalized_edge_id = str(edge_id or "").strip()
+            if normalized_edge_id.startswith("relation:"):
+                relation = self.graph_store.get_relation(normalized_edge_id.split(":", maxsplit=1)[1])
+                if relation is None:
+                    continue
+                subject_entity_id = str(relation["subject_entity_id"])
+                object_entity_id = str(relation["object_entity_id"])
+                if subject_entity_id in entity_by_id:
+                    selected_entity_ids.add(subject_entity_id)
+                if object_entity_id in entity_by_id:
+                    selected_entity_ids.add(object_entity_id)
+                paragraph_id = str(relation.get("source_paragraph_id") or "").strip()
+                if paragraph_id and paragraph_id in paragraph_by_id:
+                    selected_paragraph_ids.add(paragraph_id)
+                continue
+            if normalized_edge_id.startswith("manual:"):
+                relation = self.graph_store.get_manual_relation(normalized_edge_id.split(":", maxsplit=1)[1])
+                if relation is None:
+                    continue
+                subject_entity_id = self._entity_id_from_node_id(str(relation["subject_node_id"]))
+                object_entity_id = self._entity_id_from_node_id(str(relation["object_node_id"]))
+                if subject_entity_id and subject_entity_id in entity_by_id:
+                    selected_entity_ids.add(subject_entity_id)
+                if object_entity_id and object_entity_id in entity_by_id:
+                    selected_entity_ids.add(object_entity_id)
+
+        for entity_id in list(selected_entity_ids):
+            ranked_links = sorted(
+                links_by_entity_id.get(entity_id, []),
+                key=lambda link: float(link.get("mention_count") or 1.0),
+                reverse=True,
+            )
+            for link in ranked_links[:8]:
+                paragraph_id = str(link["paragraph_id"])
+                if paragraph_id in paragraph_by_id:
+                    selected_paragraph_ids.add(paragraph_id)
+
+        if not selected_entity_ids and not selected_paragraph_ids:
+            return {"nodes": [], "edges": []}
+
+        nodes: list[dict[str, Any]] = []
+        for entity_id in selected_entity_ids:
+            entity = entity_by_id.get(entity_id)
+            if entity is None:
+                continue
+            node_type = self._entity_node_type(entity)
+            nodes.append(
                 {
-                    "id": build_manual_edge_id(str(relation["id"])),
-                    "source": subject_node_id,
-                    "target": object_node_id,
-                    "type": "manual",
-                    "label": str(relation["predicate"]),
-                    "display_label": str(relation["predicate"]),
-                    "relation_kind_label": "手工关系",
-                    "source_name": None,
-                    "evidence_paragraph_id": None,
-                    "is_structural": False,
-                    "weight": float(relation["weight"]),
-                    "metadata": relation,
+                    "id": build_entity_node_id(entity_id),
+                    "type": node_type,
+                    "label": self._entity_node_label(entity),
+                    "display_label": self._entity_node_label(entity),
+                    "kind_label": self._node_kind_label(node_type),
+                    "source_name": self._resolve_entity_source_name(entity, source_name_by_id),
+                    "evidence_count": self._entity_evidence_count(entity),
+                    "size": self._entity_node_size(entity),
+                    "score": None,
+                    "family": "evidence",
+                    "metadata": entity,
                 }
             )
 
-        projected_edges = structural_edges + self._apply_density_filter(semantic_edges, density=density)
-        return {
-            "nodes": nodes,
-            "edges": self._prune_dangling_edges(projected_edges, node_ids=visible_node_ids),
+        for paragraph_id in selected_paragraph_ids:
+            paragraph = paragraph_by_id.get(paragraph_id)
+            if paragraph is None:
+                continue
+            nodes.append(
+                {
+                    "id": build_paragraph_node_id(paragraph_id),
+                    "type": "paragraph",
+                    "label": self._paragraph_label(str(paragraph["content"])),
+                    "display_label": self._paragraph_label(str(paragraph["content"])),
+                    "kind_label": self._node_kind_label("paragraph"),
+                    "source_name": source_name_by_id.get(paragraph_source_id_by_id.get(paragraph_id, "")),
+                    "evidence_count": 1,
+                    "size": 3.0,
+                    "score": None,
+                    "family": "evidence",
+                    "metadata": paragraph,
+                }
+            )
+
+        edges: list[dict[str, Any]] = []
+        for paragraph_id in selected_paragraph_ids:
+            for link in links_by_paragraph_id.get(paragraph_id, []):
+                entity_id = str(link["entity_id"])
+                if entity_id not in selected_entity_ids:
+                    continue
+                edges.append(
+                    {
+                        "id": build_mention_edge_id(paragraph_id, entity_id),
+                        "source": build_paragraph_node_id(paragraph_id),
+                        "target": build_entity_node_id(entity_id),
+                        "type": "mentions",
+                        "label": "提及",
+                        "display_label": "提及",
+                        "relation_kind_label": "证据关系",
+                        "source_name": source_name_by_id.get(paragraph_source_id_by_id.get(paragraph_id, "")),
+                        "evidence_paragraph_id": paragraph_id,
+                        "is_structural": True,
+                        "family": "evidence",
+                        "weight": max(1.0, float(link.get("mention_count") or 1.0)),
+                        "metadata": link,
+                    }
+                )
+
+        return {"nodes": nodes, "edges": edges}
+
+    def _list_scoped_manual_entities(
+        self,
+        visible_source_version_keys: set[str],
+    ) -> list[dict[str, Any]]:
+        manual_entity_rows: list[dict[str, Any]] = []
+        for entity in self.graph_store.list_entities():
+            metadata = dict(entity.get("metadata") or {})
+            if not bool(metadata.get("manual_created")):
+                continue
+            entity_scope_key = self._node_source_scope(build_entity_node_id(str(entity["id"])))
+            if entity_scope_key in {MULTIPLE_SOURCE_SCOPE, None}:
+                continue
+            if entity_scope_key not in visible_source_version_keys:
+                continue
+            manual_entity_rows.append(entity)
+        return manual_entity_rows
+
+    def _apply_semantic_density_filter(
+        self,
+        edges: list[dict[str, Any]],
+        *,
+        density: int,
+    ) -> list[dict[str, Any]]:
+        normalized_density = max(5, min(density, 100))
+        if normalized_density >= 100 or len(edges) <= 1:
+            return edges
+        edge_limit = max(1, round(len(edges) * normalized_density / 100))
+        components = self._build_semantic_components(edges)
+        if not components:
+            return edges[:edge_limit]
+
+        kept_edges: list[dict[str, Any]] = []
+        for component in sorted(components, key=lambda item: item["score"], reverse=True):
+            component_edges = sorted(
+                component["edges"],
+                key=lambda edge: float(edge.get("weight") or 1.0),
+                reverse=True,
+            )
+            remaining = edge_limit - len(kept_edges)
+            if remaining <= 0:
+                break
+            if len(component_edges) <= remaining:
+                kept_edges.extend(component_edges)
+                continue
+            if not kept_edges:
+                kept_edges.extend(component_edges[:remaining])
+            break
+        return kept_edges or sorted(
+            edges,
+            key=lambda edge: float(edge.get("weight") or 1.0),
+            reverse=True,
+        )[:edge_limit]
+
+    def _build_semantic_components(
+        self,
+        edges: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        if not edges:
+            return []
+        edge_by_id = {
+            str(edge["id"]): edge
+            for edge in edges
         }
+        adjacency: dict[str, list[str]] = {}
+        edge_ids_by_node: dict[str, list[str]] = {}
+        for edge in edges:
+            source_node_id = str(edge["source"])
+            target_node_id = str(edge["target"])
+            adjacency.setdefault(source_node_id, []).append(target_node_id)
+            adjacency.setdefault(target_node_id, []).append(source_node_id)
+            edge_ids_by_node.setdefault(source_node_id, []).append(str(edge["id"]))
+            edge_ids_by_node.setdefault(target_node_id, []).append(str(edge["id"]))
+
+        visited: set[str] = set()
+        components: list[dict[str, Any]] = []
+        for node_id in adjacency:
+            if node_id in visited:
+                continue
+            queue = [node_id]
+            visited.add(node_id)
+            component_edge_ids: set[str] = set()
+            component_node_ids: set[str] = set()
+            while queue:
+                current_node_id = queue.pop(0)
+                component_node_ids.add(current_node_id)
+                for edge_id in edge_ids_by_node.get(current_node_id, []):
+                    component_edge_ids.add(edge_id)
+                for next_node_id in adjacency.get(current_node_id, []):
+                    if next_node_id in visited:
+                        continue
+                    visited.add(next_node_id)
+                    queue.append(next_node_id)
+            component_edges = [
+                edge_by_id[edge_id]
+                for edge_id in component_edge_ids
+                if edge_id in edge_by_id
+            ]
+            components.append(
+                {
+                    "node_ids": list(component_node_ids),
+                    "edges": component_edges,
+                    "score": sum(float(edge.get("weight") or 1.0) for edge in component_edges)
+                    + len(component_edges) * 2.0,
+                }
+            )
+        return components
 
     def _is_graph_visible_source(self, source: dict[str, Any]) -> bool:
         return str(source.get("status") or "").strip().lower() in {"ready", "partial"}
 
-    def get_node_detail(self, node_id: str) -> dict[str, Any]:
+    def get_node_detail(self, node_id: str, version_id: str | None = None) -> dict[str, Any]:
         if node_id.startswith("source:"):
             source_id = node_id.split(":", maxsplit=1)[1]
             source = self.source_store.get_source(source_id)
             if source is None:
                 raise KeyError(node_id)
-            paragraphs = self.source_store.list_source_paragraphs(source_id)[:12]
-            relations = self.graph_store.list_relations_for_source(source_id, limit=20)
+            detail = self.source_store.get_source_detail(source_id, version_id=version_id)
+            if detail is None:
+                raise KeyError(node_id)
+            selected_version = detail.get("selected_version")
+            resolved_version_id = str(selected_version["id"]) if selected_version is not None else None
+            paragraphs = (
+                self.source_store.list_source_paragraphs(source_id, version_id=resolved_version_id)[:12]
+                if resolved_version_id
+                else []
+            )
+            relations = (
+                self.graph_store.list_relations_for_source(
+                    source_id,
+                    version_id=resolved_version_id,
+                    limit=20,
+                )
+                if resolved_version_id
+                else []
+            )
             return {
                 "node": {
                     "id": node_id,
@@ -266,7 +754,7 @@ class GraphService:
                     "evidence_count": int(dict(source.get("metadata") or {}).get("paragraph_count") or 0) or None,
                     "size": self._source_node_size(source),
                     "score": None,
-                    "metadata": source,
+                    "metadata": {**source, "selected_version": selected_version},
                 },
                 "source": source,
                 "paragraphs": paragraphs,
@@ -470,20 +958,36 @@ class GraphService:
         label: str,
         description: str = "",
         source_id: str | None = None,
+        version_id: str | None = None,
         metadata: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         normalized_label = " ".join(str(label or "").split()).strip()
         if not normalized_label:
             raise ValueError("实体名称不能为空。")
+        normalized_source_id = str(source_id or "").strip() or None
+        normalized_version_id = str(version_id or "").strip() or None
+        if normalized_version_id and not normalized_source_id:
+            raise ValueError("指定快照前必须先选择来源。")
+        if normalized_source_id is None:
+            raise ValueError("请先选择单一来源快照，再创建手工实体。")
+        if self.source_store.get_source(normalized_source_id) is None:
+            raise ValueError("手工实体关联的来源不存在。")
+        if normalized_version_id is None:
+            normalized_version_id = self.source_store.resolve_latest_active_version_id(normalized_source_id)
+        if normalized_version_id is None:
+            raise ValueError("当前来源还没有可用快照，无法创建手工实体。")
+        if self.source_store.get_source_version(normalized_source_id, normalized_version_id) is None:
+            raise ValueError("手工实体关联的快照不存在。")
 
         entity = self.graph_store.create_entity(
             display_name=normalized_label,
             description=description,
             metadata={
+                **dict(metadata or {}),
                 "entity_kind": "manual_entity",
                 "manual_created": True,
-                "source_id": str(source_id or "").strip() or None,
-                **dict(metadata or {}),
+                "source_id": normalized_source_id,
+                "version_id": normalized_version_id,
             },
             appearance_count=0,
         )
@@ -525,12 +1029,14 @@ class GraphService:
         subject_source_scope = self._node_source_scope(normalized_subject_node_id)
         object_source_scope = self._node_source_scope(normalized_object_node_id)
         if MULTIPLE_SOURCE_SCOPE in {subject_source_scope, object_source_scope}:
-            raise ValueError("无法为跨来源实体创建手工关系，请先收窄到单一来源。")
+            raise ValueError("无法为跨来源或跨快照实体创建手工关系，请先收窄到单一来源快照。")
         if subject_source_scope != object_source_scope:
-            raise ValueError("手工关系的起点和终点必须位于同一来源范围内。")
+            raise ValueError("手工关系的起点和终点必须位于同一来源快照内。")
         relation_metadata = dict(metadata)
         if isinstance(subject_source_scope, str) and subject_source_scope:
-            relation_metadata["source_id"] = subject_source_scope
+            source_id, version_id = subject_source_scope.split("::", maxsplit=1)
+            relation_metadata["source_id"] = source_id
+            relation_metadata["version_id"] = version_id
         return self.graph_store.create_manual_relation(
             subject_node_id=normalized_subject_node_id,
             predicate=normalized_predicate,
@@ -818,13 +1324,20 @@ class GraphService:
             source_id = node_id.split(":", maxsplit=1)[1]
             if self.source_store.get_source(source_id) is None:
                 raise KeyError(node_id)
-            return source_id
+            version_id = self.source_store.resolve_latest_active_version_id(source_id)
+            if version_id is None:
+                return None
+            return self._source_version_scope_key(source_id, version_id)
         if node_id.startswith("paragraph:"):
             paragraph_id = node_id.split(":", maxsplit=1)[1]
             paragraph = self.source_store.get_paragraph(paragraph_id)
             if paragraph is None:
                 raise KeyError(node_id)
-            return str(paragraph.get("source_id") or "").strip() or None
+            source_id = str(paragraph.get("source_id") or "").strip()
+            version_id = str(paragraph.get("version_id") or "").strip()
+            if not source_id or not version_id:
+                return None
+            return self._source_version_scope_key(source_id, version_id)
         if node_id.startswith("entity:"):
             entity_id = node_id.split(":", maxsplit=1)[1]
             entity = self.graph_store.get_entity(entity_id)
@@ -832,25 +1345,36 @@ class GraphService:
                 raise KeyError(node_id)
             metadata = dict(entity.get("metadata") or {})
             source_id = str(metadata.get("source_id") or "").strip()
+            version_id = str(metadata.get("version_id") or "").strip()
             if source_id:
-                return source_id
+                resolved_version_id = version_id or self.source_store.resolve_latest_active_version_id(source_id)
+                if resolved_version_id:
+                    return self._source_version_scope_key(source_id, resolved_version_id)
             paragraph_links = self.graph_store.list_paragraph_entity_links(entity_id=entity_id)
             if not paragraph_links:
                 return None
-            source_ids = {
-                str(paragraph.get("source_id") or "").strip()
+            source_version_keys = {
+                self._source_version_scope_key(
+                    str(paragraph.get("source_id") or "").strip(),
+                    str(paragraph.get("version_id") or "").strip(),
+                )
                 for paragraph in (
                     self.source_store.get_paragraph(str(link["paragraph_id"]))
                     for link in paragraph_links
                 )
-                if paragraph is not None and str(paragraph.get("source_id") or "").strip()
+                if paragraph is not None
+                and str(paragraph.get("source_id") or "").strip()
+                and str(paragraph.get("version_id") or "").strip()
             }
-            if len(source_ids) == 1:
-                return next(iter(source_ids))
-            if len(source_ids) > 1:
+            if len(source_version_keys) == 1:
+                return next(iter(source_version_keys))
+            if len(source_version_keys) > 1:
                 return MULTIPLE_SOURCE_SCOPE
             return None
         return None
+
+    def _source_version_scope_key(self, source_id: str, version_id: str) -> str:
+        return f"{source_id}::{version_id}"
 
     def _entity_id_from_node_id(self, node_id: str) -> str | None:
         if node_id.startswith("entity:"):
@@ -902,6 +1426,15 @@ class GraphService:
     def _paragraph_label(self, content: str) -> str:
         compact = " ".join(content.split())
         return compact if len(compact) <= 28 else f"{compact[:28]}..."
+
+
+
+
+
+
+
+
+
 
 
 

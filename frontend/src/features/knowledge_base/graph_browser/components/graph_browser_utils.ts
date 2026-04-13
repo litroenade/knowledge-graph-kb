@@ -7,14 +7,7 @@ import type {
 } from '../../shared/types/knowledge_base_types';
 
 export const DEFAULT_PREDICATE = '提及';
-export const DENSITY_PRESETS = [48, 72, 96] as const;
-
-let viewport_command_id = 0;
-
-export interface ViewportCommand {
-  id: number;
-  type: 'fit-all' | 'focus-selection' | 'zoom-in' | 'zoom-out' | 'relayout';
-}
+export const DENSITY_PRESETS = [48, 72, 100] as const;
 
 export interface GraphSearchCandidateRecord {
   id: string;
@@ -67,14 +60,6 @@ export function format_metadata_value(value: unknown): string | null {
     return items.length ? items.join('、') : null;
   }
   return read_text(value);
-}
-
-export function create_viewport_command(type: ViewportCommand['type']): ViewportCommand {
-  viewport_command_id += 1;
-  return {
-    id: viewport_command_id,
-    type,
-  };
 }
 
 export function format_source_display_name(source: SourceLike, sources: SourceLike[]): string {
@@ -171,6 +156,7 @@ export function collect_node_import_rows(
     metadata_row('导入策略', metadata.strategy),
     metadata_row('来源类型', metadata.source_kind),
     metadata_row('导入方式', metadata.input_mode),
+    metadata_row('快照 ID', metadata.version_id),
     metadata_row('工作表', metadata.worksheet_name),
     metadata_row('表格来源', metadata.workbook_name),
     metadata_row('来源 ID', metadata.source_id),
@@ -184,6 +170,7 @@ export function collect_edge_import_rows(metadata: Record<string, unknown>): [st
   const rows = [
     metadata_row('关系来源', metadata.relation_source),
     metadata_row('来源类型', metadata.source_kind),
+    metadata_row('快照 ID', metadata.version_id),
     metadata_row('来源 ID', metadata.source_id),
     metadata_row('段落 ID', metadata.paragraph_id),
     metadata_row('工作表', metadata.worksheet_name),

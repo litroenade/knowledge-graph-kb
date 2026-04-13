@@ -19,9 +19,11 @@ class VectorIndexRecord:
 
     paragraph_id: str
     source_id: str
+    version_id: str
     node_id: str
     text: str
     knowledge_type: str
+    file_path: str | None = None
 
 
 @dataclass(slots=True)
@@ -30,9 +32,11 @@ class VectorSearchResult:
 
     paragraph_id: str
     source_id: str
+    version_id: str
     node_id: str
     text: str
     knowledge_type: str
+    file_path: str | None
     distance: float
     similarity: float
 
@@ -99,9 +103,11 @@ class VectorIndex:
             record_map[record.paragraph_id] = {
                 "paragraph_id": record.paragraph_id,
                 "source_id": record.source_id,
+                "version_id": record.version_id,
                 "node_id": record.node_id,
                 "text": record.text,
                 "knowledge_type": record.knowledge_type,
+                "file_path": record.file_path,
                 "embedding": [float(value) for value in embedding],
             }
 
@@ -116,7 +122,7 @@ class VectorIndex:
         model_signature: str,
         query_embedding: list[float],
         limit: int = 12,
-        source_ids: list[str] | None = None,
+        scope_pairs: list[tuple[str, str]] | None = None,
         paragraph_ids: list[str] | None = None,
     ) -> list[VectorSearchResult]:
         if self._model_signature and self._model_signature != model_signature:
@@ -126,9 +132,9 @@ class VectorIndex:
             return []
 
         query_matrix = self._normalize_vectors([query_embedding])
-        fetch_limit = self._search_limit(limit=limit, has_filter=bool(source_ids or paragraph_ids))
+        fetch_limit = self._search_limit(limit=limit, has_filter=bool(scope_pairs or paragraph_ids))
         similarities, positions = self._index.search(query_matrix, fetch_limit)
-        allowed_sources = set(source_ids or [])
+        allowed_pairs = set(scope_pairs or [])
         allowed_paragraphs = set(paragraph_ids or [])
         results: list[VectorSearchResult] = []
 
@@ -136,7 +142,8 @@ class VectorIndex:
             if position < 0 or position >= len(self._metadata):
                 continue
             payload = self._metadata[position]
-            if allowed_sources and str(payload["source_id"]) not in allowed_sources:
+            pair = (str(payload["source_id"]), str(payload.get("version_id") or ""))
+            if allowed_pairs and pair not in allowed_pairs:
                 continue
             if allowed_paragraphs and str(payload["paragraph_id"]) not in allowed_paragraphs:
                 continue
@@ -145,9 +152,11 @@ class VectorIndex:
                 VectorSearchResult(
                     paragraph_id=str(payload["paragraph_id"]),
                     source_id=str(payload["source_id"]),
+                    version_id=str(payload.get("version_id") or ""),
                     node_id=str(payload["node_id"]),
                     text=str(payload["text"]),
                     knowledge_type=str(payload["knowledge_type"]),
+                    file_path=str(payload.get("file_path") or "").strip() or None,
                     distance=1.0 - score,
                     similarity=score,
                 )

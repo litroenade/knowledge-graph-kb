@@ -162,6 +162,8 @@ class ImportPipeline:
         """
 
         self._ensure_not_cancelled(is_cancel_requested)
+        source: dict[str, Any] | None = None
+        source_version: dict[str, Any] | None = None
         source_name = str(item["name"])
         file_type = str(item.get("file_type") or "").strip().lower().lstrip(".")
         logger.info(
@@ -296,16 +298,41 @@ class ImportPipeline:
             **(dict(spreadsheet_bundle.get("metadata", {})) if spreadsheet_bundle is not None else {}),
             **({"spreadsheet_sheets": sheet_names} if sheet_names else {}),
         }
-        source = self.source_store.create_source(
+        existing_source = self.source_store.find_existing_source(
             name=source_name,
             source_kind=str(item["source_kind"]),
             input_mode=str(item["input_mode"]),
-            file_type=file_type,
             storage_path=item.get("storage_path"),
-            strategy=strategy,
-            status="running",
-            summary=None,
-            metadata=source_metadata,
+        )
+        if existing_source is None:
+            source = self.source_store.create_source(
+                name=source_name,
+                source_kind=str(item["source_kind"]),
+                input_mode=str(item["input_mode"]),
+                file_type=file_type,
+                storage_path=item.get("storage_path"),
+                strategy=strategy,
+                status="running",
+                summary=None,
+                metadata=source_metadata,
+            )
+        else:
+            source = self.source_store.update_source(
+                str(existing_source["id"]),
+                name=source_name,
+                source_kind=str(item["source_kind"]),
+                input_mode=str(item["input_mode"]),
+                file_type=file_type,
+                storage_path=item.get("storage_path"),
+                strategy=strategy,
+                status="running",
+                summary=None,
+                metadata={**dict(existing_source.get("metadata", {})), **source_metadata},
+            ) or existing_source
+        source_version = self.source_store.create_source_version(
+            source_id=str(source["id"]),
+            status="processing",
+            metadata={"job_id": job_id, "file_id": file_id},
         )
         logger.info(
             "已创建来源记录：job_id=%s file_id=%s source_id=%s source_name=%s",
@@ -321,7 +348,19 @@ class ImportPipeline:
             f"正在写入来源记录：{source_name} | source_id={str(source['id'])} | 段落数 {len(paragraph_payloads)}",
         )
 
-        paragraph_rows = self.source_store.add_paragraphs(source_id=str(source["id"]), paragraphs=paragraph_payloads)
+        try:
+            paragraph_rows = self.source_store.add_paragraphs(
+                source_id=str(source["id"]),
+                version_id=str(source_version["id"]),
+                paragraphs=paragraph_payloads,
+            )
+        except Exception as exc:
+            self.source_store.fail_source_version(
+                source_id=str(source["id"]),
+                version_id=str(source_version["id"]),
+                error=str(exc),
+            )
+            raise
         self.record_store.sync_rows_for_paragraphs(paragraph_rows)
         self._ensure_not_cancelled(is_cancel_requested)
 
@@ -357,9 +396,11 @@ class ImportPipeline:
             VectorIndexRecord(
                 paragraph_id=str(paragraph["id"]),
                 source_id=str(source["id"]),
+                version_id=str(source_version["id"]),
                 node_id=build_paragraph_node_id(str(paragraph["id"])),
                 text=str(paragraph["content"]),
                 knowledge_type=str(paragraph["knowledge_type"]),
+                file_path=str(source.get("storage_path") or "") or None,
             )
             for paragraph in paragraph_rows
         ]
@@ -435,6 +476,7 @@ class ImportPipeline:
         )
         self._write_entities_and_relations(
             source_id=str(source["id"]),
+            version_id=str(source_version["id"]),
             paragraph_rows=paragraph_rows,
             extraction_result=extraction_result,
         )
@@ -476,6 +518,10 @@ class ImportPipeline:
             status="partial" if extraction_warning else "ready",
             summary=summary,
             metadata=final_source_metadata,
+        )
+        self.source_store.activate_source_version(
+            source_id=str(source["id"]),
+            version_id=str(source_version["id"]),
         )
         self.job_store.update_job_file(
             file_id,
@@ -816,6 +862,7 @@ class ImportPipeline:
         self,
         *,
         source_id: str,
+        version_id: str,
         paragraph_rows: list[dict[str, Any]],
         extraction_result: dict[str, Any],
     ) -> None:
@@ -833,7 +880,11 @@ class ImportPipeline:
             row = self.graph_store.upsert_entity(
                 display_name=str(entity["name"]),
                 description=str(entity.get("description") or ""),
-                metadata={**dict(entity.get("metadata", {})), "source_id": source_id},
+                metadata={
+                    **dict(entity.get("metadata", {})),
+                    "source_id": source_id,
+                    "version_id": version_id,
+                },
             )
             entity_rows[str(entity["name"]).strip().lower()] = row
             for paragraph in paragraph_rows:
@@ -842,9 +893,11 @@ class ImportPipeline:
                     continue
                 self.graph_store.link_paragraph_entity(
                     paragraph_id=str(paragraph["id"]),
+                    source_id=source_id,
+                    version_id=version_id,
                     entity_id=str(row["id"]),
                     mention_count=mention_count,
-                    metadata={"source_id": source_id},
+                    metadata={"source_id": source_id, "version_id": version_id},
                 )
         for relation in extraction_result["relations"]:
             subject_row = entity_rows.get(str(relation["subject"]).strip().lower())
@@ -858,18 +911,30 @@ class ImportPipeline:
                 paragraph_text_map=paragraph_text_map,
             )
             relation_row = self.graph_store.create_relation(
+                source_id=source_id,
+                version_id=version_id,
                 subject_entity_id=str(subject_row["id"]),
                 predicate=str(relation["predicate"]),
                 object_entity_id=str(object_row["id"]),
                 confidence=float(relation.get("confidence") or 1.0),
                 source_paragraph_id=source_paragraph_id,
-                metadata={**dict(relation.get("metadata", {})), "source_id": source_id},
+                metadata={
+                    **dict(relation.get("metadata", {})),
+                    "source_id": source_id,
+                    "version_id": version_id,
+                },
             )
             if source_paragraph_id:
                 self.graph_store.link_paragraph_relation(
                     paragraph_id=source_paragraph_id,
+                    source_id=source_id,
+                    version_id=version_id,
                     relation_id=str(relation_row["id"]),
-                    metadata={**dict(relation.get("metadata", {})), "source_id": source_id},
+                    metadata={
+                        **dict(relation.get("metadata", {})),
+                        "source_id": source_id,
+                        "version_id": version_id,
+                    },
                 )
 
     def _resolve_relation_source_paragraph(
@@ -1065,6 +1130,16 @@ class ImportExecutor:
                         file_id,
                         str(file_row.get("name") or item.get("name") or ""),
                     )
+                    latest_file_row = self.job_store.get_job_file(file_id)
+                    source_id = str(latest_file_row.get("source_id") or "") if latest_file_row is not None else ""
+                    if source_id:
+                        processing_version = self.pipeline.source_store.get_latest_processing_version(source_id)
+                        if processing_version is not None:
+                            self.pipeline.source_store.fail_source_version(
+                                source_id=source_id,
+                                version_id=str(processing_version["id"]),
+                                error=str(exc),
+                            )
                     self.job_store.update_job_file(
                         file_id,
                         status="failed",
@@ -1853,8 +1928,5 @@ def _merge_extraction_results(partial_results: list[dict[str, Any]]) -> dict[str
         "entities": list(entity_map.values()),
         "relations": list(relation_map.values()),
     }
-
-
-
 
 

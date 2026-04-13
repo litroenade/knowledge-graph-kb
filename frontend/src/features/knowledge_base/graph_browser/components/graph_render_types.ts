@@ -1,8 +1,12 @@
 import type {
+  GraphProjectionSummary,
+  GraphReadingLens,
   GraphLayerMode,
   KnowledgeGraphEdgeRecord,
   KnowledgeGraphNodeRecord,
 } from '../../shared/types/knowledge_base_types';
+
+export type GraphEdgeAggregateKind = 'none' | 'source_bundle';
 
 export interface RenderNode extends KnowledgeGraphNodeRecord {
   display_label: string;
@@ -26,11 +30,17 @@ export interface RenderEdge extends KnowledgeGraphEdgeRecord {
   layer_mode: GraphLayerMode;
   is_structural: boolean;
   color: number;
+  aggregate_kind: GraphEdgeAggregateKind;
+  related_node_ids: string[];
+  related_edge_ids: string[];
+  related_count: number;
 }
 
 export interface ProjectedGraphRecord {
   nodes: RenderNode[];
   edges: RenderEdge[];
+  summary: GraphProjectionSummary;
+  reading_lens: GraphReadingLens;
 }
 
 export interface GraphLayoutPoint {

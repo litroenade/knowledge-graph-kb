@@ -11,13 +11,28 @@ export const kb_query_client = new QueryClient({
 
 export const kb_query_keys = {
   model_config: () => ['kb', 'config', 'model'] as const,
-  graph: (params: { source_ids: string[]; include_paragraphs: boolean; density: number }) =>
+  graph: (params: {
+    scope: {
+      mode: string;
+      source_ids: string[];
+      version_mode: string;
+      version_id?: string | null;
+      excluded_source_ids: string[];
+    };
+    view: string;
+    density: number;
+    anchor_node_ids: string[];
+    anchor_edge_ids: string[];
+  }) =>
     ['kb', 'graph', params] as const,
   manual_relations: () => ['kb', 'graph', 'manual-relations'] as const,
-  node_detail: (node_id: string | null) => ['kb', 'graph', 'node-detail', node_id] as const,
+  node_detail: (node_id: string | null, version_id?: string | null) =>
+    ['kb', 'graph', 'node-detail', node_id, version_id ?? null] as const,
   edge_detail: (edge_id: string | null) => ['kb', 'graph', 'edge-detail', edge_id] as const,
   import_jobs: () => ['kb', 'imports', 'jobs'] as const,
   source_list: () => ['kb', 'sources'] as const,
-  source_detail: (source_id: string | null) => ['kb', 'sources', 'detail', source_id] as const,
-  source_paragraphs: (source_id: string | null) => ['kb', 'sources', 'paragraphs', source_id] as const,
+  source_detail: (source_id: string | null, version_id?: string | null) =>
+    ['kb', 'sources', 'detail', source_id, version_id ?? null] as const,
+  source_paragraphs: (source_id: string | null, version_id?: string | null) =>
+    ['kb', 'sources', 'paragraphs', source_id, version_id ?? null] as const,
 };

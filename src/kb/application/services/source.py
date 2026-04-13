@@ -17,7 +17,8 @@ class SourceService:
         self.source_store = source_store
 
     def list_sources(self, *, keyword: str | None = None, limit: int = 100) -> list[dict[str, Any]]:
-        return self.source_store.list_sources(limit=limit, keyword=keyword)
+        rows = self.source_store.list_sources(limit=limit, keyword=keyword)
+        return [self._serialize_source(row) for row in rows]
 
     def update_source(
         self,
@@ -47,37 +48,39 @@ class SourceService:
         detail = self.get_source_detail(source_id)
         return detail["source"] if detail is not None else updated
 
-    def get_source_detail(self, source_id: str) -> dict[str, Any] | None:
-        detail = self.source_store.get_source_detail(source_id)
+    def get_source_detail(self, source_id: str, version_id: str | None = None) -> dict[str, Any] | None:
+        detail = self.source_store.get_source_detail(source_id, version_id=version_id)
         if detail is None:
             return None
         source = detail["source"]
+        versions = [self._serialize_source_version(version) for version in detail.get("versions", [])]
+        selected_version = detail.get("selected_version")
         return {
-            "source": {
-                "id": str(source["id"]),
-                "name": str(source["name"]),
-                "source_kind": str(source["source_kind"]),
-                "input_mode": str(source["input_mode"]),
-                "file_type": source.get("file_type"),
-                "storage_path": source.get("storage_path"),
-                "strategy": str(source["strategy"]),
-                "status": str(source["status"]),
-                "summary": str(source.get("summary") or "") or None,
-                "metadata": source.get("metadata", {}),
-                "created_at": str(source["created_at"]),
-                "updated_at": str(source["updated_at"]),
-            },
+            "source": self._serialize_source(source, versions=versions),
             "paragraph_count": int(detail.get("paragraph_count") or 0),
             "entity_count": int(detail.get("entity_count") or 0),
             "relation_count": int(detail.get("relation_count") or 0),
+            "selected_version": self._serialize_source_version(selected_version) if selected_version else None,
+            "versions": versions,
         }
 
-    def list_source_paragraphs(self, source_id: str) -> list[dict[str, Any]] | None:
+    def list_source_paragraphs(self, source_id: str, version_id: str | None = None) -> list[dict[str, Any]] | None:
         source = self.source_store.get_source(source_id)
         if source is None:
             logger.debug("Unable to load source paragraphs because the source does not exist. source_id=%s", source_id)
             return None
-        paragraphs = self.source_store.list_source_paragraphs(source_id)
+        selected_version = self.source_store.resolve_source_version(source_id, version_id=version_id)
+        if version_id and selected_version is None:
+            logger.debug(
+                "Unable to load source paragraphs because the version does not exist. source_id=%s version_id=%s",
+                source_id,
+                version_id,
+            )
+            return None
+        paragraphs = self.source_store.list_source_paragraphs(
+            source_id,
+            version_id=str(selected_version["id"]) if selected_version is not None else None,
+        )
         worksheet_rows_by_ref = self._collect_source_row_context(paragraphs)
         logger.debug(
             "Loaded source paragraph render context. source_id=%s paragraph_count=%s worksheet_context_count=%s",
@@ -91,7 +94,10 @@ class SourceService:
             metadata = dict(paragraph.get("metadata") or {})
             worksheet_key = normalize_sheet_name(str(metadata.get("worksheet_name") or ""))
             worksheet_rows = self._window_rows_for_paragraph(
-                rows=worksheet_rows_by_ref.get((str(paragraph["source_id"]), worksheet_key), []),
+                rows=worksheet_rows_by_ref.get(
+                    (str(paragraph["source_id"]), str(paragraph.get("version_id") or ""), worksheet_key),
+                    [],
+                ),
                 row_index=int(metadata.get("row_index") or 0),
             )
             render_payload = build_paragraph_render_payload(
@@ -117,8 +123,11 @@ class SourceService:
             return list(rows)
         return [row for row in rows if abs(int(row.get("row_index") or 0) - row_index) <= 1]
 
-    def _collect_source_row_context(self, paragraphs: list[dict[str, Any]]) -> dict[tuple[str, str], list[dict[str, Any]]]:
-        grouped: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
+    def _collect_source_row_context(
+        self,
+        paragraphs: list[dict[str, Any]],
+    ) -> dict[tuple[str, str, str], list[dict[str, Any]]]:
+        grouped: dict[tuple[str, str, str], list[dict[str, Any]]] = defaultdict(list)
         for paragraph in paragraphs:
             metadata = dict(paragraph.get("metadata") or {})
             if str(metadata.get("paragraph_kind") or "") != "row_record":
@@ -126,7 +135,13 @@ class SourceService:
             worksheet_key = normalize_sheet_name(str(metadata.get("worksheet_name") or ""))
             if not worksheet_key:
                 continue
-            grouped[(str(paragraph["source_id"]), worksheet_key)].append(
+            grouped[
+                (
+                    str(paragraph["source_id"]),
+                    str(paragraph.get("version_id") or ""),
+                    worksheet_key,
+                )
+            ].append(
                 {
                     "paragraph_id": str(paragraph["id"]),
                     "row_index": int(metadata.get("row_index") or 0),
@@ -136,3 +151,47 @@ class SourceService:
                 }
             )
         return grouped
+
+    def _serialize_source(
+        self,
+        source: dict[str, Any],
+        *,
+        versions: list[dict[str, Any]] | None = None,
+    ) -> dict[str, Any]:
+        serialized_versions = versions if versions is not None else [
+            self._serialize_source_version(version)
+            for version in self.source_store.list_source_versions(str(source["id"]))
+        ]
+        active_version = next(
+            (version for version in serialized_versions if str(version.get("status") or "").lower() == "active"),
+            None,
+        )
+        return {
+            "id": str(source["id"]),
+            "name": str(source["name"]),
+            "source_kind": str(source["source_kind"]),
+            "input_mode": str(source["input_mode"]),
+            "file_type": source.get("file_type"),
+            "storage_path": source.get("storage_path"),
+            "strategy": str(source["strategy"]),
+            "status": str(source["status"]),
+            "summary": str(source.get("summary") or "") or None,
+            "metadata": source.get("metadata", {}),
+            "created_at": str(source["created_at"]),
+            "updated_at": str(source["updated_at"]),
+            "active_version_id": str(active_version["id"]) if active_version else None,
+            "active_version_number": int(active_version["version_number"]) if active_version else None,
+            "version_count": len(serialized_versions),
+        }
+
+    def _serialize_source_version(self, version: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "id": str(version["id"]),
+            "source_id": str(version["source_id"]),
+            "version_number": int(version["version_number"]),
+            "status": str(version["status"]),
+            "metadata": dict(version.get("metadata") or {}),
+            "created_at": str(version["created_at"]),
+            "activated_at": str(version.get("activated_at") or "") or None,
+            "updated_at": str(version["updated_at"]),
+        }

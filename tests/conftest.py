@@ -85,7 +85,6 @@ def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> TestClient:
 
     monkeypatch.setenv("KB_DATA_DIR", str(data_dir))
     monkeypatch.setenv("FRONTEND_DIST_DIR", str(frontend_dist_dir))
-    monkeypatch.setenv("OPENAI_API_KEY", "test-api-key")
     monkeypatch.setenv("LOG_LEVEL", "INFO")
 
     monkeypatch.setattr(OpenAiGateway, "generate_embeddings", _fake_generate_embeddings)

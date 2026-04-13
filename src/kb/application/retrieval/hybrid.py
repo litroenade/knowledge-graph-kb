@@ -1,4 +1,4 @@
-"""统一编排结构化、向量与 PPR 重排的双路检索器。"""
+"""Hybrid answer retrieval across structured, vector, and optional graph rerank lanes."""
 
 from time import perf_counter
 
@@ -16,7 +16,7 @@ logger = get_logger(__name__)
 
 
 class HybridAnswerRetriever:
-    """优先执行结构化检索，再按需补充向量检索与图重排。"""
+    """Structured first, then vector retrieval, then optional graph reranking."""
 
     def __init__(
         self,
@@ -34,14 +34,9 @@ class HybridAnswerRetriever:
         self.graph_reranker = graph_reranker
 
     def retrieve(self, request: RetrievalRequest) -> HybridRetrievalResult:
-        """执行双路检索并返回最终命中、检索模式与轨迹。"""
-
         total_start = perf_counter()
         candidate_paragraph_ids = self._resolve_candidate_paragraph_ids(request)
         structured_hits, structured_trace = self.structured_retriever.retrieve(request)
-        vector_trace = self._skip_trace("not_requested")
-        fusion_trace = self._skip_trace("not_requested")
-        ppr_trace = self._skip_trace("disabled")
 
         if request.worksheet_names and candidate_paragraph_ids == []:
             trace = RetrievalTrace(
@@ -51,7 +46,6 @@ class HybridAnswerRetriever:
                 ppr=self._skip_trace("worksheet_scope_empty"),
                 total_ms=round((perf_counter() - total_start) * 1000.0, 2),
             )
-            logger.info("双路检索结束：工作表过滤后没有候选段落，worksheet_count=%s", len(request.worksheet_names))
             return HybridRetrievalResult(hits=[], retrieval_mode="none", trace=trace)
 
         short_circuit_hits = self._short_circuit_hits(request, structured_hits)
@@ -62,11 +56,6 @@ class HybridAnswerRetriever:
                 fusion=self._skip_trace("structured_short_circuit"),
                 ppr=self._skip_trace("structured_short_circuit"),
                 total_ms=round((perf_counter() - total_start) * 1000.0, 2),
-            )
-            logger.info(
-                "双路检索命中结构化短路：query_length=%s hit_count=%s",
-                len(str(request.query or "")),
-                len(short_circuit_hits[: request.top_k]),
             )
             return HybridRetrievalResult(
                 hits=short_circuit_hits[: request.top_k],
@@ -88,7 +77,6 @@ class HybridAnswerRetriever:
                 ppr=self._skip_trace("no_hits"),
                 total_ms=round((perf_counter() - total_start) * 1000.0, 2),
             )
-            logger.info("双路检索未命中：query_length=%s", len(str(request.query or "")))
             return HybridRetrievalResult(hits=[], retrieval_mode="none", trace=trace)
 
         if structured_hits and not vector_hits:
@@ -98,11 +86,6 @@ class HybridAnswerRetriever:
                 fusion=self._skip_trace("vector_empty"),
                 ppr=self._skip_trace("vector_empty"),
                 total_ms=round((perf_counter() - total_start) * 1000.0, 2),
-            )
-            logger.info(
-                "双路检索完成：仅结构化命中，query_length=%s hit_count=%s",
-                len(str(request.query or "")),
-                len(structured_hits[: request.top_k]),
             )
             return HybridRetrievalResult(
                 hits=structured_hits[: request.top_k],
@@ -117,11 +100,6 @@ class HybridAnswerRetriever:
                 fusion=self._skip_trace("structured_empty"),
                 ppr=self._skip_trace("structured_empty"),
                 total_ms=round((perf_counter() - total_start) * 1000.0, 2),
-            )
-            logger.info(
-                "双路检索完成：仅向量命中，query_length=%s hit_count=%s",
-                len(str(request.query or "")),
-                len(vector_hits[: request.top_k]),
             )
             return HybridRetrievalResult(
                 hits=vector_hits[: request.top_k],
@@ -159,17 +137,6 @@ class HybridAnswerRetriever:
             ppr=ppr_trace,
             total_ms=round((perf_counter() - total_start) * 1000.0, 2),
         )
-        logger.info(
-            "双路检索完成：query_length=%s retrieval_mode=%s structured_hits=%s vector_hits=%s fused_hits=%s final_hits=%s ppr_executed=%s total_ms=%s",
-            len(str(request.query or "")),
-            retrieval_mode,
-            len(structured_hits),
-            len(vector_hits),
-            len(fused_hits),
-            len(final_hits),
-            ppr_trace.executed,
-            trace.total_ms,
-        )
         return HybridRetrievalResult(
             hits=final_hits,
             retrieval_mode=retrieval_mode,
@@ -179,12 +146,10 @@ class HybridAnswerRetriever:
         )
 
     def _resolve_candidate_paragraph_ids(self, request: RetrievalRequest) -> list[str] | None:
-        """按来源和工作表范围预先约束候选段落。"""
-
         if not request.worksheet_names:
             return None
         rows = self.record_store.list_candidate_rows(
-            source_ids=request.source_ids or None,
+            source_version_pairs=request.scope_pairs or None,
             worksheet_names=request.worksheet_names or None,
             filters=None,
         )
@@ -201,8 +166,6 @@ class HybridAnswerRetriever:
         return paragraph_ids
 
     def _short_circuit_hits(self, request: RetrievalRequest, structured_hits: list[ParagraphHit]) -> list[ParagraphHit]:
-        """判断结构化精确命中是否足以提前结束检索。"""
-
         if not structured_hits:
             return []
         required_hits = max(1, self.settings.query_structured_short_circuit_hits)
@@ -214,8 +177,6 @@ class HybridAnswerRetriever:
         return []
 
     def _weighted_rrf_fuse(self, *, structured_hits: list[ParagraphHit], vector_hits: list[ParagraphHit]) -> list[ParagraphHit]:
-        """使用加权 RRF 融合结构化检索与向量检索结果。"""
-
         combined: dict[str, ParagraphHit] = {}
         combined_scores: dict[str, float] = {}
         origin_ranks: dict[str, dict[str, int]] = {}
@@ -238,10 +199,12 @@ class HybridAnswerRetriever:
                 ParagraphHit(
                     paragraph_id=base_hit.paragraph_id,
                     source_id=base_hit.source_id,
+                    version_id=base_hit.version_id,
                     score=round(score, 6),
                     rank=0,
                     retriever="hybrid",
                     match_type=base_hit.match_type if "structured" in ranks else "semantic",
+                    file_path=base_hit.file_path,
                     metadata={
                         **dict(base_hit.metadata),
                         "origin_ranks": ranks,
@@ -254,8 +217,6 @@ class HybridAnswerRetriever:
         return fused_hits
 
     def _skip_trace(self, reason: str) -> RetrievalLaneTrace:
-        """构造未执行链路的空轨迹。"""
-
         return RetrievalLaneTrace(
             executed=False,
             skipped_reason=reason,

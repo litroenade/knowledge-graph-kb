@@ -1,4 +1,4 @@
-"""结构化表格行存储"""
+"""Structured record row storage."""
 
 from collections import defaultdict
 from typing import Any
@@ -11,7 +11,7 @@ from .common import placeholders, utc_now_iso
 
 
 class RecordStore:
-    """持久化并读取结构化表格行记录"""
+    """Persist and read spreadsheet-like row records."""
 
     def __init__(self, gateway: SQLiteGateway) -> None:
         self.gateway = gateway
@@ -28,6 +28,7 @@ class RecordStore:
                     "id": str(uuid4()),
                     "paragraph_id": str(paragraph["id"]),
                     "source_id": str(paragraph["source_id"]),
+                    "version_id": str(paragraph.get("version_id") or ""),
                     "worksheet_name": worksheet_name,
                     "worksheet_key": normalize_sheet_name(worksheet_name),
                     "row_index": int(metadata.get("row_index") or 0),
@@ -46,11 +47,13 @@ class RecordStore:
                 connection.execute(
                     """
                     INSERT INTO record_rows (
-                        id, paragraph_id, source_id, worksheet_name, worksheet_key, row_index,
+                        id, paragraph_id, source_id, version_id, worksheet_name, worksheet_key, row_index,
                         record_key, entity_name, content, metadata, created_at, updated_at
                     )
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ON CONFLICT(paragraph_id) DO UPDATE SET
+                        source_id = excluded.source_id,
+                        version_id = excluded.version_id,
                         worksheet_name = excluded.worksheet_name,
                         worksheet_key = excluded.worksheet_key,
                         row_index = excluded.row_index,
@@ -64,6 +67,7 @@ class RecordStore:
                         payload["id"],
                         payload["paragraph_id"],
                         payload["source_id"],
+                        payload["version_id"],
                         payload["worksheet_name"],
                         payload["worksheet_key"],
                         payload["row_index"],
@@ -113,20 +117,22 @@ class RecordStore:
                             now,
                         ),
                     )
-            connection.commit()
 
     def list_candidate_rows(
         self,
         *,
-        source_ids: list[str] | None = None,
+        source_version_pairs: list[dict[str, Any]] | None = None,
         worksheet_names: list[str] | None = None,
         filters: dict[str, str] | None = None,
     ) -> list[dict[str, Any]]:
         clauses = ["1 = 1"]
         params: list[Any] = []
-        if source_ids:
-            clauses.append(f"record_rows.source_id IN ({placeholders(source_ids)})")
-            params.extend(source_ids)
+        if source_version_pairs:
+            pair_clauses = []
+            for pair in source_version_pairs:
+                pair_clauses.append("(record_rows.source_id = ? AND record_rows.version_id = ?)")
+                params.extend([str(pair["source_id"]), str(pair["version_id"])])
+            clauses.append(f"({' OR '.join(pair_clauses)})")
         normalized_sheet_names = [
             normalize_sheet_name(name)
             for name in (worksheet_names or [])
@@ -160,7 +166,7 @@ class RecordStore:
             params.extend(filter_params)
         return self.gateway.fetch_all(
             f"""
-            SELECT record_rows.*, sources.name AS source_name
+            SELECT record_rows.*, sources.name AS source_name, sources.storage_path AS file_path
             FROM record_rows
             JOIN sources ON sources.id = record_rows.source_id
             WHERE {' AND '.join(clauses)}
@@ -187,13 +193,11 @@ class RecordStore:
         return grouped
 
     def list_rows_by_paragraph_ids(self, paragraph_ids: list[str]) -> dict[str, dict[str, Any]]:
-        """按段落 ID 读取对应的结构化行"""
-
         if not paragraph_ids:
             return {}
         rows = self.gateway.fetch_all(
             f"""
-            SELECT record_rows.*, sources.name AS source_name
+            SELECT record_rows.*, sources.name AS source_name, sources.storage_path AS file_path
             FROM record_rows
             JOIN sources ON sources.id = record_rows.source_id
             WHERE record_rows.paragraph_id IN ({placeholders(paragraph_ids)})
@@ -204,39 +208,57 @@ class RecordStore:
 
     def list_rows_in_windows(
         self,
-        windows: list[tuple[str, str, int]],
+        windows: list[tuple[Any, ...]],
         *,
         radius: int = 1,
-    ) -> dict[tuple[str, str, int], list[dict[str, Any]]]:
-        """按来源 工作表 与目标行批量读取局部上下文"""
-
-        grouped_windows: dict[tuple[str, str], set[int]] = defaultdict(set)
-        for source_id, worksheet_name, row_index in windows:
+    ) -> dict[tuple[str, str, str, int], list[dict[str, Any]]]:
+        grouped_windows: dict[tuple[str, str, str], set[int]] = defaultdict(set)
+        for window in windows:
+            if len(window) == 4:
+                source_id, version_id, worksheet_name, row_index = window
+            else:
+                source_id, worksheet_name, row_index = window
+                version_id = ""
             normalized_source_id = str(source_id or "").strip()
+            normalized_version_id = str(version_id or "").strip()
             worksheet_key = normalize_sheet_name(worksheet_name)
             normalized_row_index = int(row_index or 0)
             if not normalized_source_id or not worksheet_key or normalized_row_index <= 0:
                 continue
-            grouped_windows[(normalized_source_id, worksheet_key)].add(normalized_row_index)
+            grouped_windows[(normalized_source_id, normalized_version_id, worksheet_key)].add(normalized_row_index)
         if not grouped_windows:
             return {}
 
-        result: dict[tuple[str, str, int], list[dict[str, Any]]] = {}
+        result: dict[tuple[str, str, str, int], list[dict[str, Any]]] = {}
         normalized_radius = max(0, int(radius))
-        for (source_id, worksheet_key), row_indexes in grouped_windows.items():
+        for (source_id, version_id, worksheet_key), row_indexes in grouped_windows.items():
             min_row = max(0, min(row_indexes) - normalized_radius)
             max_row = max(row_indexes) + normalized_radius
-            rows = self.gateway.fetch_all(
-                """
-                SELECT record_rows.*
-                FROM record_rows
-                WHERE record_rows.source_id = ?
-                  AND record_rows.worksheet_key = ?
-                  AND record_rows.row_index BETWEEN ? AND ?
-                ORDER BY record_rows.row_index ASC
-                """,
-                (source_id, worksheet_key, min_row, max_row),
-            )
+            if version_id:
+                rows = self.gateway.fetch_all(
+                    """
+                    SELECT record_rows.*
+                    FROM record_rows
+                    WHERE record_rows.source_id = ?
+                      AND record_rows.version_id = ?
+                      AND record_rows.worksheet_key = ?
+                      AND record_rows.row_index BETWEEN ? AND ?
+                    ORDER BY record_rows.row_index ASC
+                    """,
+                    (source_id, version_id, worksheet_key, min_row, max_row),
+                )
+            else:
+                rows = self.gateway.fetch_all(
+                    """
+                    SELECT record_rows.*
+                    FROM record_rows
+                    WHERE record_rows.source_id = ?
+                      AND record_rows.worksheet_key = ?
+                      AND record_rows.row_index BETWEEN ? AND ?
+                    ORDER BY record_rows.row_index ASC
+                    """,
+                    (source_id, worksheet_key, min_row, max_row),
+                )
             cell_map = self.list_cells([str(row["id"]) for row in rows])
             hydrated_rows = [
                 {
@@ -249,7 +271,7 @@ class RecordStore:
                 for row in rows
             ]
             for target_row_index in row_indexes:
-                result[(source_id, worksheet_key, target_row_index)] = [
+                result[(source_id, version_id, worksheet_key, target_row_index)] = [
                     row
                     for row in hydrated_rows
                     if abs(int(row.get("row_index") or 0) - target_row_index) <= normalized_radius

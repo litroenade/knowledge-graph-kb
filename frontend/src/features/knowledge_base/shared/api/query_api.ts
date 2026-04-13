@@ -6,6 +6,7 @@ import type {
   ChatSessionDetailRecord,
   ChatSessionRecord,
   EntitySearchItemRecord,
+  KBScopeRecord,
   RecordSearchItemRecord,
   RelationSearchItemRecord,
   SourceSearchItemRecord,
@@ -51,7 +52,7 @@ export function post_chat_message(
   session_id: string,
   payload: {
     content: string;
-    source_ids?: string[];
+    scope: KBScopeRecord;
     worksheet_names?: string[];
     top_k?: number;
   },
@@ -65,7 +66,7 @@ export function post_chat_message(
 
 export async function search_records(payload: {
   query: string;
-  source_ids?: string[];
+  scope: KBScopeRecord;
   worksheet_names?: string[];
   filters?: Record<string, string>;
   limit?: number;

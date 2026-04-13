@@ -108,10 +108,15 @@ class GraphReranker:
                 ParagraphHit(
                     paragraph_id=hit.paragraph_id,
                     source_id=hit.source_id,
+                    version_id=hit.version_id,
                     score=round(hit.score * 0.7 + graph_score * 0.3, 6),
                     rank=hit.rank,
                     retriever="ppr",
                     match_type=hit.match_type,
+                    file_path=hit.file_path,
+                    chunk_id=hit.chunk_id,
+                    start_offset=hit.start_offset,
+                    end_offset=hit.end_offset,
                     metadata={**dict(hit.metadata), "ppr_score": graph_score, "base_score": hit.score},
                 )
             )

@@ -67,7 +67,7 @@ def create_chat_message(
         session = conversation_service.post_user_message(
             session_id=session_id,
             content=payload.content,
-            source_ids=payload.source_ids,
+            scope=payload.scope.model_dump(),
             worksheet_names=payload.worksheet_names,
             top_k=payload.top_k,
         )
@@ -94,7 +94,7 @@ def search_records(
     try:
         result = record_search_service.search_records(
             query=payload.query,
-            source_ids=payload.source_ids,
+            scope=payload.scope.model_dump(),
             worksheet_names=payload.worksheet_names,
             filters=payload.filters,
             limit=payload.limit,

@@ -12,35 +12,27 @@ interface ChatDiagnosticsSectionProps {
 }
 
 const TRACE_LABELS: Record<keyof Omit<RetrievalTraceRecord, 'total_ms'>, string> = {
-  structured: '结构化检索',
-  vector: '向量检索',
-  fusion: '融合排序',
-  ppr: '图谱扩散',
-};
-
-const SKIPPED_REASON_LABELS: Record<string, string> = {
-  no_graph_hits: '没有图谱命中',
-  no_sources_selected: '未选择来源',
-  no_vector_hits: '没有向量命中',
-  no_structured_hits: '没有结构化命中',
-  not_executed: '未执行',
+  structured: 'Structured',
+  vector: 'Vector',
+  fusion: 'Fusion',
+  ppr: 'Graph rerank',
 };
 
 function lane_status(lane: RetrievalTraceLaneRecord): string {
   if (lane.executed) {
-    return '已执行';
+    return 'Executed';
   }
   if (!lane.skipped_reason) {
-    return '已跳过';
+    return 'Skipped';
   }
-  return `已跳过：${SKIPPED_REASON_LABELS[lane.skipped_reason] ?? lane.skipped_reason}`;
+  return `Skipped: ${lane.skipped_reason}`;
 }
 
 function lane_summary(lane: RetrievalTraceLaneRecord): string {
   const paragraph_text = lane.top_paragraph_ids.length
-    ? `命中段落：${lane.top_paragraph_ids.join('、')}`
-    : '没有命中段落';
-  return `命中 ${lane.hit_count} 条，耗时 ${lane.latency_ms} ms，${paragraph_text}`;
+    ? `Top ids: ${lane.top_paragraph_ids.join(', ')}`
+    : 'No paragraph hits';
+  return `${lane.hit_count} hit(s), ${lane.latency_ms} ms. ${paragraph_text}`;
 }
 
 export function ChatDiagnosticsSection(props: ChatDiagnosticsSectionProps) {
@@ -66,25 +58,25 @@ export function ChatDiagnosticsSection(props: ChatDiagnosticsSectionProps) {
   return (
     <section className='kb-chat-diagnostics'>
       <button className='kb-chat-sources-toggle' onClick={() => set_open((current) => !current)} type='button'>
-        <strong>{open ? '隐藏执行信息' : '显示执行信息'}</strong>
-        <span>诊断</span>
+        <strong>{open ? 'Hide diagnostics' : 'Show diagnostics'}</strong>
+        <span>Trace</span>
       </button>
 
       {open ? (
         <div className='kb-chat-diagnostics-body'>
           {execution ? (
             <article className='kb-chat-diagnostics-trace-row'>
-              <strong>执行摘要</strong>
-              <span>{`状态：${execution.status}`}</span>
-              <span>{`命中段落：${execution.matched_paragraph_count}`}</span>
-              <span>{execution.model_invoked ? '已调用模型生成回答' : '未调用模型'}</span>
+              <strong>Execution</strong>
+              <span>{`Status: ${execution.status}`}</span>
+              <span>{`Matches: ${execution.matched_paragraph_count}`}</span>
+              <span>{execution.model_invoked ? 'Model invoked' : 'No model call'}</span>
               <span>{execution.message}</span>
             </article>
           ) : null}
 
           {trace_rows.length ? (
             <section className='kb-chat-diagnostics-trace'>
-              <strong>检索路径</strong>
+              <strong>Retrieval lanes</strong>
               {trace_rows.map(({ key, label, lane }) => (
                 <article className='kb-chat-diagnostics-trace-row' key={key}>
                   <strong>{label}</strong>

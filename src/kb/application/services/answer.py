@@ -1,4 +1,4 @@
-﻿"""Answer service."""
+"""Answer service."""
 
 from time import perf_counter
 from typing import Any
@@ -18,31 +18,41 @@ from src.kb.importing.evidence import (
     build_paragraph_render_payload,
 )
 from src.kb.providers import OpenAiGateway
-from src.kb.storage import AnswerReadStore, RecordStore, StaleVectorIndexError
+from src.kb.storage import AnswerReadStore, RecordStore, SourceStore, StaleVectorIndexError
 from src.utils.logger import get_logger
 
 from ..retrieval.hybrid import HybridAnswerRetriever
-from ..retrieval.types import ParagraphHit, RetrievalLaneTrace, RetrievalRequest, RetrievalTrace
+from ..retrieval.types import (
+    KBScope,
+    ParagraphHit,
+    RetrievalLaneTrace,
+    RetrievalRequest,
+    RetrievalTrace,
+    ScopedSourceVersion,
+)
 
-EMPTY_QUERY_MESSAGE = "请输入问题后再发起问答。"
-NO_HIT_MESSAGE = "知识库中没有找到相关段落。"
-STALE_INDEX_MESSAGE = "向量索引与当前嵌入模型不一致，请重新导入后再试。"
+EMPTY_QUERY_MESSAGE = "Please enter a question before asking the knowledge base."
+NO_HIT_MESSAGE = "No matching evidence was found in the selected scope."
+EMPTY_SCOPE_MESSAGE = "No readable sources were found in the selected scope."
+STALE_INDEX_MESSAGE = "The vector index does not match the active embedding model. Re-import and try again."
 logger = get_logger(__name__)
 
 
 class AnswerService:
-    """Coordinate retrieval, evidence shaping, and answer generation."""
+    """Coordinate scoped retrieval, evidence shaping, and answer generation."""
 
     def __init__(
         self,
         *,
         settings: Settings,
+        source_store: SourceStore,
         answer_read_store: AnswerReadStore,
         record_store: RecordStore,
         hybrid_answer_retriever: HybridAnswerRetriever,
         openai_gateway: OpenAiGateway,
     ) -> None:
         self.settings = settings
+        self.source_store = source_store
         self.answer_read_store = answer_read_store
         self.record_store = record_store
         self.hybrid_answer_retriever = hybrid_answer_retriever
@@ -52,73 +62,70 @@ class AnswerService:
         self,
         *,
         query: str,
-        source_ids: list[str] | None = None,
+        scope: dict[str, Any],
         worksheet_names: list[str] | None = None,
         top_k: int = 6,
         conversation_history: list[dict[str, str]] | None = None,
     ) -> dict[str, Any]:
         normalized_query = str(query or "").strip()
-        logger.debug(
-            "Answer request started: query_length=%s source_count=%s worksheet_count=%s top_k=%s history_turn_count=%s",
-            len(normalized_query),
-            len(source_ids or []),
-            len(worksheet_names or []),
-            top_k,
-            len(conversation_history or []),
-        )
         if not normalized_query:
-            logger.info("Answer skipped because query is empty.")
             return self._empty_response(
                 EMPTY_QUERY_MESSAGE,
+                scope=KBScope(mode="all").to_dict(),
                 status="empty_query",
-                execution_message="问题为空，系统已跳过检索和生成。",
+                execution_message="The question was empty, so retrieval was skipped.",
+            )
+
+        normalized_scope = KBScope.from_payload(scope)
+        scope_pairs = self.source_store.resolve_scope_pairs(normalized_scope)
+        if not scope_pairs:
+            return self._empty_response(
+                EMPTY_SCOPE_MESSAGE,
+                scope=normalized_scope.to_dict(),
+                status="empty_scope",
+                execution_message="The selected scope did not resolve to any active source snapshots.",
             )
 
         request = RetrievalRequest(
             query=normalized_query,
-            source_ids=list(source_ids or []),
+            scope=normalized_scope,
+            scope_pairs=[],
             worksheet_names=list(worksheet_names or []),
             top_k=max(1, min(top_k, self.settings.query_context_chunks)),
         )
+        request.scope_pairs = [
+            ScopedSourceVersion(
+                source_id=str(pair["source_id"]),
+                version_id=str(pair["version_id"]),
+                source_name=str(pair.get("source_name") or "") or None,
+                file_path=str(pair.get("file_path") or "") or None,
+            )
+            for pair in scope_pairs
+        ]
         try:
             retrieval_result = self.hybrid_answer_retriever.retrieve(request)
         except StaleVectorIndexError:
-            logger.warning(
-                "Answer aborted because the vector index is stale: query_length=%s",
-                len(normalized_query),
-            )
             return self._empty_response(
                 STALE_INDEX_MESSAGE,
+                scope=normalized_scope.to_dict(),
                 status="stale_index",
                 retrieval_mode="vector",
-                execution_message="向量索引已失效，系统已跳过模型生成。",
+                execution_message="The vector index is stale, so answer generation was skipped.",
                 retrieval_trace=self._empty_trace().to_dict(),
             )
-        logger.debug(
-            "Answer retrieval finished: retrieval_mode=%s hit_count=%s total_ms=%s structured_hits=%s vector_hits=%s ppr_hits=%s",
-            retrieval_result.retrieval_mode,
-            len(retrieval_result.hits),
-            retrieval_result.trace.total_ms,
-            retrieval_result.trace.structured.hit_count,
-            retrieval_result.trace.vector.hit_count,
-            retrieval_result.trace.ppr.hit_count,
-        )
 
         if not retrieval_result.hits:
-            logger.info(
-                "Answer found no usable paragraphs: query_length=%s retrieval_mode=%s",
-                len(normalized_query),
-                retrieval_result.retrieval_mode,
-            )
             return self._empty_response(
                 NO_HIT_MESSAGE,
+                scope=normalized_scope.to_dict(),
                 retrieval_mode=retrieval_result.retrieval_mode,
-                execution_message="没有找到可用段落，系统已跳过模型生成。",
+                execution_message="No usable evidence was found, so answer generation was skipped.",
                 retrieval_trace=retrieval_result.trace.to_dict(),
             )
 
         return self._build_answer_response(
             query=normalized_query,
+            scope=normalized_scope,
             hits=retrieval_result.hits,
             retrieval_mode=retrieval_result.retrieval_mode,
             retrieval_trace=retrieval_result.trace,
@@ -130,7 +137,6 @@ class AnswerService:
     def hydrate_citations(self, citations: list[dict[str, Any]]) -> list[dict[str, Any]]:
         if not citations:
             return []
-        logger.debug("Hydrating citations: citation_count=%s", len(citations))
         paragraph_ids = [
             str(item.get("paragraph_id") or "").strip()
             for item in citations
@@ -146,14 +152,6 @@ class AnswerService:
         for link in entity_links:
             entity_links_by_paragraph.setdefault(str(link["paragraph_id"]), []).append(link)
         record_rows_by_paragraph, worksheet_rows_by_ref = self._load_render_context(paragraph_ids)
-        logger.debug(
-            "Citation hydration context loaded: citation_count=%s paragraph_count=%s entity_link_count=%s record_row_count=%s worksheet_window_count=%s",
-            len(citations),
-            len(paragraphs),
-            len(entity_links),
-            len(record_rows_by_paragraph),
-            len(worksheet_rows_by_ref),
-        )
 
         hydrated: list[dict[str, Any]] = []
         for item in citations:
@@ -165,7 +163,7 @@ class AnswerService:
                 continue
             record_row = record_rows_by_paragraph.get(paragraph_id)
             worksheet_rows = self._worksheet_rows_for_record(record_row, worksheet_rows_by_ref)
-            excerpt = str(paragraph.get("content") or "")[:420]
+            snippet = str(citation.get("snippet") or paragraph.get("content") or "")[:420]
             anchor_node_ids = self._normalize_anchor_node_ids(
                 citation.get("anchor_node_ids"),
                 fallback=self._citation_anchor_node_ids(entity_links_by_paragraph.get(paragraph_id, [])),
@@ -185,16 +183,14 @@ class AnswerService:
                 {
                     **citation,
                     "source_id": str(paragraph.get("source_id") or citation.get("source_id") or ""),
+                    "version_id": str(paragraph.get("version_id") or citation.get("version_id") or ""),
                     "source_name": str(paragraph.get("source_name") or citation.get("source_name") or ""),
                     "source_kind": str(
                         paragraph.get("source_kind") or citation.get("source_kind") or ""
                     )
                     or None,
-                    "worksheet_name": self._worksheet_name_from_payload(
-                        paragraph,
-                        render_payload,
-                        citation,
-                    ),
+                    "file_path": str(paragraph.get("file_path") or citation.get("file_path") or "") or None,
+                    "worksheet_name": self._worksheet_name_from_payload(paragraph, render_payload, citation),
                     "page_number": self._optional_int(
                         dict(paragraph.get("metadata") or {}).get("page_number")
                         or dict(render_payload.get("render_metadata") or {}).get("page_number")
@@ -210,17 +206,18 @@ class AnswerService:
                         citation.get("matched_fields")
                         or dict(render_payload.get("render_metadata") or {}).get("highlighted_columns")
                     ),
-                    "excerpt": excerpt or str(citation.get("excerpt") or ""),
+                    "snippet": snippet,
+                    "excerpt": snippet,
                     **render_payload,
                 }
             )
-        logger.debug("Citation hydration finished: citation_count=%s", len(hydrated))
         return hydrated
 
     def _build_answer_response(
         self,
         *,
         query: str,
+        scope: KBScope,
         hits: list[ParagraphHit],
         retrieval_mode: str,
         retrieval_trace: RetrievalTrace,
@@ -233,13 +230,6 @@ class AnswerService:
         paragraph_by_id = {str(row["id"]): row for row in paragraphs}
         entity_links = self.answer_read_store.list_entity_links_for_paragraphs(paragraph_ids)
         relation_links = self.answer_read_store.list_relation_links_for_paragraphs(paragraph_ids)
-        logger.debug(
-            "Shaping answer result: paragraph_id_count=%s paragraph_count=%s entity_link_count=%s relation_link_count=%s",
-            len(paragraph_ids),
-            len(paragraphs),
-            len(entity_links),
-            len(relation_links),
-        )
         entity_links_by_paragraph: dict[str, list[dict[str, Any]]] = {}
         relation_links_by_paragraph: dict[str, list[dict[str, Any]]] = {}
         for link in entity_links:
@@ -258,8 +248,9 @@ class AnswerService:
             if paragraph is None:
                 continue
             source_id = str(paragraph["source_id"])
+            version_id = str(paragraph.get("version_id") or hit.version_id)
             source_name = str(paragraph["source_name"])
-            excerpt = str(paragraph["content"])[:420]
+            snippet = str(paragraph["content"])[:420]
             record_row = record_rows_by_paragraph.get(hit.paragraph_id)
             worksheet_rows = self._worksheet_rows_for_record(record_row, worksheet_rows_by_ref)
             matched_columns = [
@@ -267,19 +258,7 @@ class AnswerService:
                 for value in list(hit.metadata.get("matched_cells") or [])
                 if str(value).strip()
             ]
-            anchor_node_ids = self._citation_anchor_node_ids(
-                entity_links_by_paragraph.get(hit.paragraph_id, []),
-            )
-            logger.debug(
-                "Processing answer hit paragraph: paragraph_id=%s score=%s retriever=%s match_type=%s matched_column_count=%s worksheet_window_row_count=%s",
-                hit.paragraph_id,
-                hit.score,
-                hit.retriever,
-                hit.match_type,
-                len(matched_columns),
-                len(worksheet_rows),
-            )
-
+            anchor_node_ids = self._citation_anchor_node_ids(entity_links_by_paragraph.get(hit.paragraph_id, []))
             render_payload = build_paragraph_render_payload(
                 paragraph=paragraph,
                 worksheet_rows=worksheet_rows,
@@ -288,14 +267,15 @@ class AnswerService:
             citations.append(
                 {
                     "paragraph_id": hit.paragraph_id,
+                    "chunk_id": hit.chunk_id or hit.paragraph_id,
                     "source_id": source_id,
+                    "version_id": version_id,
                     "source_name": source_name,
-                    "excerpt": excerpt,
+                    "file_path": str(paragraph.get("file_path") or hit.file_path or "") or None,
+                    "excerpt": snippet,
+                    "snippet": snippet,
                     "score": float(hit.score),
-                    "match_reason": self._citation_match_reason(
-                        retriever=hit.retriever,
-                        match_type=hit.match_type,
-                    ),
+                    "match_reason": self._citation_match_reason(retriever=hit.retriever, match_type=hit.match_type),
                     "matched_fields": self._normalize_string_list(matched_columns),
                     "source_kind": str(paragraph.get("source_kind") or "").strip() or None,
                     "worksheet_name": self._worksheet_name_from_payload(paragraph, render_payload),
@@ -306,15 +286,13 @@ class AnswerService:
                     "paragraph_position": self._optional_int(paragraph.get("position")),
                     "winning_lane": str(hit.retriever or "").strip() or None,
                     "anchor_node_ids": anchor_node_ids,
-                    "preferred_anchor_node_id": self._preferred_anchor_node_id(
-                        None,
-                        anchor_node_ids=anchor_node_ids,
-                    ),
+                    "preferred_anchor_node_id": self._preferred_anchor_node_id(None, anchor_node_ids=anchor_node_ids),
+                    "start_offset": hit.start_offset,
+                    "end_offset": hit.end_offset,
                     **render_payload,
                 }
             )
-            context_blocks.append({"document_name": source_name, "excerpt": excerpt})
-
+            context_blocks.append({"document_name": source_name, "excerpt": snippet})
             highlighted_node_ids.extend([build_source_node_id(source_id), build_paragraph_node_id(hit.paragraph_id)])
             highlighted_edge_ids.append(build_contains_edge_id(source_id, hit.paragraph_id))
 
@@ -327,31 +305,14 @@ class AnswerService:
                 highlighted_edge_ids.append(build_relation_edge_id(str(link["relation_id"])))
 
         if not citations:
-            logger.info(
-                "Answer stopped because no paragraphs could be shaped into citations: retrieval_mode=%s",
-                retrieval_mode,
-            )
             return self._empty_response(
                 NO_HIT_MESSAGE,
+                scope=scope.to_dict(),
                 retrieval_mode=retrieval_mode,
-                execution_message="没有找到可用段落，系统已跳过模型生成。",
+                execution_message="No usable evidence was found, so answer generation was skipped.",
                 retrieval_trace=retrieval_trace.to_dict(),
             )
-        logger.debug(
-            "Answer evidence shaped: citation_count=%s context_block_count=%s highlighted_node_count=%s highlighted_edge_count=%s",
-            len(citations),
-            len(context_blocks),
-            len(highlighted_node_ids),
-            len(highlighted_edge_ids),
-        )
 
-        logger.info(
-            "Generating answer: query_length=%s retrieval_mode=%s citation_count=%s history_turn_count=%s",
-            len(query),
-            retrieval_mode,
-            len(citations),
-            len(conversation_history or []),
-        )
         llm_start = perf_counter()
         answer_text = self.gateway.generate_answer(
             query,
@@ -359,24 +320,12 @@ class AnswerService:
             conversation_turns=conversation_history or None,
         )
         llm_ms = round((perf_counter() - llm_start) * 1000.0, 2)
-        total_ms = round(retrieval_trace.total_ms + llm_ms, 2)
-
-        logger.info(
-            "Answer completed: retrieval_mode=%s citation_count=%s llm_ms=%s total_ms=%s",
-            retrieval_mode,
-            len(citations),
-            llm_ms,
-            total_ms,
-        )
-        logger.debug(
-            "Answer details: answer_length=%s highlighted_node_count=%s highlighted_edge_count=%s",
-            len(answer_text),
-            len(highlighted_node_ids),
-            len(highlighted_edge_ids),
-        )
+        sources = self._build_source_summary(citations)
         return {
             "answer": answer_text,
             "citations": citations,
+            "sources": sources,
+            "scope": scope.to_dict(),
             "highlighted_node_ids": self._deduplicate(highlighted_node_ids),
             "highlighted_edge_ids": self._deduplicate(highlighted_edge_ids),
             "execution": self._build_execution(
@@ -384,19 +333,42 @@ class AnswerService:
                 retrieval_mode=retrieval_mode,
                 model_invoked=True,
                 matched_paragraph_count=len(citations),
-                message=f"系统已基于 {len(citations)} 条证据生成回答。",
+                message=f"The system answered from {len(citations)} evidence chunks.",
             ),
-            "retrieval_trace": retrieval_trace.to_dict(),
+            "retrieval_trace": {
+                **retrieval_trace.to_dict(),
+                "generation_ms": llm_ms,
+                "scope": scope.to_dict(),
+            },
         }
+
+    def _build_source_summary(self, citations: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        aggregated: dict[tuple[str, str], dict[str, Any]] = {}
+        for citation in citations:
+            key = (str(citation.get("source_id") or ""), str(citation.get("version_id") or ""))
+            entry = aggregated.setdefault(
+                key,
+                {
+                    "source_id": key[0],
+                    "version_id": key[1],
+                    "source_name": str(citation.get("source_name") or ""),
+                    "file_path": str(citation.get("file_path") or "") or None,
+                    "citation_count": 0,
+                    "snippet": str(citation.get("snippet") or ""),
+                },
+            )
+            entry["citation_count"] = int(entry["citation_count"]) + 1
+        return list(aggregated.values())
 
     def _load_render_context(
         self,
         paragraph_ids: list[str],
-    ) -> tuple[dict[str, dict[str, Any]], dict[tuple[str, str, int], list[dict[str, Any]]]]:
+    ) -> tuple[dict[str, dict[str, Any]], dict[tuple[str, str, str, int], list[dict[str, Any]]]]:
         record_rows_by_paragraph = self.record_store.list_rows_by_paragraph_ids(paragraph_ids)
         row_windows = [
             (
                 str(row.get("source_id") or ""),
+                str(row.get("version_id") or ""),
                 str(row.get("worksheet_key") or row.get("worksheet_name") or ""),
                 int(row.get("row_index") or 0),
             )
@@ -406,24 +378,18 @@ class AnswerService:
             and int(row.get("row_index") or 0) > 0
         ]
         worksheet_rows_by_ref = self.record_store.list_rows_in_windows(row_windows, radius=1)
-        logger.debug(
-            "Table render context loaded: paragraph_id_count=%s record_row_count=%s window_request_count=%s worksheet_window_count=%s",
-            len(paragraph_ids),
-            len(record_rows_by_paragraph),
-            len(row_windows),
-            len(worksheet_rows_by_ref),
-        )
         return record_rows_by_paragraph, worksheet_rows_by_ref
 
     def _worksheet_rows_for_record(
         self,
         record_row: dict[str, Any] | None,
-        worksheet_rows_by_ref: dict[tuple[str, str, int], list[dict[str, Any]]],
+        worksheet_rows_by_ref: dict[tuple[str, str, str, int], list[dict[str, Any]]],
     ) -> list[dict[str, Any]]:
         if record_row is None:
             return []
         ref = (
             str(record_row.get("source_id") or ""),
+            str(record_row.get("version_id") or ""),
             str(record_row.get("worksheet_key") or record_row.get("worksheet_name") or ""),
             int(record_row.get("row_index") or 0),
         )
@@ -438,6 +404,7 @@ class AnswerService:
             "match_reason": str(citation.get("match_reason") or "").strip() or None,
             "matched_fields": self._normalize_string_list(citation.get("matched_fields")),
             "source_kind": str(citation.get("source_kind") or "").strip() or None,
+            "file_path": str(citation.get("file_path") or "").strip() or None,
             "worksheet_name": str(citation.get("worksheet_name") or "").strip() or None,
             "page_number": self._optional_int(citation.get("page_number")),
             "paragraph_position": self._optional_int(citation.get("paragraph_position")),
@@ -450,6 +417,7 @@ class AnswerService:
             "render_kind": render_kind,
             "rendered_html": citation.get("rendered_html"),
             "render_metadata": dict(citation.get("render_metadata") or {}),
+            "snippet": str(citation.get("snippet") or citation.get("excerpt") or ""),
         }
 
     def _citation_anchor_node_ids(self, entity_links: list[dict[str, Any]]) -> list[str]:
@@ -476,12 +444,7 @@ class AnswerService:
             return self._deduplicate(anchors)
         return list(fallback or [])
 
-    def _preferred_anchor_node_id(
-        self,
-        value: Any,
-        *,
-        anchor_node_ids: list[str],
-    ) -> str | None:
+    def _preferred_anchor_node_id(self, value: Any, *, anchor_node_ids: list[str]) -> str | None:
         preferred = str(value or "").strip()
         if preferred:
             return preferred
@@ -490,11 +453,7 @@ class AnswerService:
         return None
 
     def _normalize_string_list(self, value: Any) -> list[str]:
-        return [
-            text
-            for text in (str(item).strip() for item in list(value or []))
-            if text
-        ]
+        return [text for text in (str(item).strip() for item in list(value or [])) if text]
 
     def _optional_int(self, value: Any) -> int | None:
         if value is None or value == "":
@@ -522,22 +481,20 @@ class AnswerService:
 
     def _citation_match_reason(self, *, retriever: str, match_type: str) -> str:
         match_type_map = {
-            "record_key_exact": "精确命中记录键",
-            "cell_exact": "精确命中表格单元格",
-            "cell_partial": "部分命中表格单元格",
-            "token_overlap": "结构化字段词项重叠",
-            "semantic": "语义向量命中",
+            "record_key_exact": "Exact record key match",
+            "cell_exact": "Exact cell match",
+            "cell_partial": "Partial cell match",
+            "token_overlap": "Structured token overlap",
+            "semantic": "Semantic vector match",
         }
         if match_type in match_type_map:
             return match_type_map[match_type]
-
-        retriever_map = {
-            "structured": "结构化检索命中",
-            "vector": "向量检索命中",
-            "hybrid": "融合排序保留",
-            "ppr": "图谱扩散命中",
-        }
-        return retriever_map.get(retriever, "检索命中")
+        return {
+            "structured": "Structured retrieval match",
+            "vector": "Vector retrieval match",
+            "hybrid": "Hybrid fusion match",
+            "ppr": "Graph rerank enrichment",
+        }.get(retriever, "Retrieval match")
 
     def _build_execution(
         self,
@@ -560,6 +517,7 @@ class AnswerService:
         self,
         message: str,
         *,
+        scope: dict[str, Any],
         status: str = "no_hit",
         retrieval_mode: str = "none",
         execution_message: str | None = None,
@@ -568,6 +526,8 @@ class AnswerService:
         return {
             "answer": message,
             "citations": [],
+            "sources": [],
+            "scope": scope,
             "highlighted_node_ids": [],
             "highlighted_edge_ids": [],
             "execution": self._build_execution(

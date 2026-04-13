@@ -1,4 +1,4 @@
-﻿"""应用配置与路径辅助函数。"""
+"""Application runtime settings and path helpers."""
 
 from functools import lru_cache
 from pathlib import Path
@@ -10,29 +10,17 @@ ROOT_DIR = Path(__file__).resolve().parents[2]
 
 
 class Settings(BaseSettings):
-    """从环境变量加载的运行时配置。"""
+    """Application-level settings loaded from the root `.env` file."""
 
     app_name: str = "Knowledge Graph KB"
-    kb_data_dir: str = Field(
-        default="./data/kb",
-        validation_alias=AliasChoices("KB_DATA_DIR"),
-    )
-    kb_database_name: str = Field(
-        default="kb.sqlite3",
-        validation_alias=AliasChoices("KB_DATABASE_NAME"),
-    )
+    kb_data_dir: str = Field(default="./data/kb", validation_alias=AliasChoices("KB_DATA_DIR"))
+    kb_database_name: str = Field(default="kb.sqlite3", validation_alias=AliasChoices("KB_DATABASE_NAME"))
     kb_vector_index_dir_name: str = Field(
         default="vector_index",
         validation_alias=AliasChoices("KB_VECTOR_INDEX_DIR_NAME"),
     )
-    kb_upload_dir_name: str = Field(
-        default="uploads",
-        validation_alias=AliasChoices("KB_UPLOAD_DIR_NAME"),
-    )
-    kb_secret_dir_name: str = Field(
-        default="secrets",
-        validation_alias=AliasChoices("KB_SECRET_DIR_NAME"),
-    )
+    kb_upload_dir_name: str = Field(default="uploads", validation_alias=AliasChoices("KB_UPLOAD_DIR_NAME"))
+    kb_secret_dir_name: str = Field(default="secrets", validation_alias=AliasChoices("KB_SECRET_DIR_NAME"))
     model_config_secret_name: str = Field(
         default="model_config.key",
         validation_alias=AliasChoices("MODEL_CONFIG_SECRET_NAME"),
@@ -41,37 +29,11 @@ class Settings(BaseSettings):
         default_factory=lambda: ["./data/kb/uploads", "./"],
         validation_alias=AliasChoices("KB_SCAN_ROOTS"),
     )
-    frontend_dist_dir: str = Field(
-        default="./frontend/dist",
-        validation_alias=AliasChoices("FRONTEND_DIST_DIR"),
-    )
+    frontend_dist_dir: str = Field(default="./frontend/dist", validation_alias=AliasChoices("FRONTEND_DIST_DIR"))
     server_host: str = Field(default="0.0.0.0", validation_alias=AliasChoices("SERVER_HOST"))
     server_port: int = Field(default=8000, validation_alias=AliasChoices("SERVER_PORT"))
     log_level: str = Field(default="DEBUG", validation_alias=AliasChoices("LOG_LEVEL"))
-    model_provider: str = Field(
-        default="openai",
-        validation_alias=AliasChoices("MODEL_PROVIDER", "API_PROVIDER"),
-    )
-    model_base_url: str = Field(
-        default="",
-        validation_alias=AliasChoices("MODEL_BASE_URL", "OPENAI_BASE_URL"),
-    )
-    openai_api_key: str = Field(
-        default="",
-        validation_alias=AliasChoices("OPENAI_API_KEY", "MODEL_API_KEY"),
-    )
-    openai_llm_model: str = Field(
-        default="gpt-5.4-mini",
-        validation_alias=AliasChoices("OPENAI_LLM_MODEL", "LLM_MODEL"),
-    )
-    openai_embed_model: str = Field(
-        default="text-embedding-3-large",
-        validation_alias=AliasChoices("OPENAI_EMBED_MODEL", "EMBEDDING_MODEL"),
-    )
-    embedding_batch_size: int = Field(
-        default=32,
-        validation_alias=AliasChoices("EMBEDDING_BATCH_SIZE"),
-    )
+    embedding_batch_size: int = Field(default=32, validation_alias=AliasChoices("EMBEDDING_BATCH_SIZE"))
     chunk_size_tokens: int = Field(default=600, validation_alias=AliasChoices("CHUNK_SIZE_TOKENS"))
     chunk_overlap_tokens: int = Field(default=120, validation_alias=AliasChoices("CHUNK_OVERLAP_TOKENS"))
     query_context_chunks: int = Field(default=6, validation_alias=AliasChoices("QUERY_CONTEXT_CHUNKS"))
@@ -133,14 +95,10 @@ class Settings(BaseSettings):
 
 @lru_cache
 def get_settings() -> Settings:
-    """返回带缓存的应用配置。"""
-
     return Settings()
 
 
 def ensure_app_dirs(settings: Settings | None = None) -> None:
-    """创建应用运行所需目录。"""
-
     active_settings = settings or get_settings()
     active_settings.resolved_kb_data_dir.mkdir(parents=True, exist_ok=True)
     active_settings.resolved_kb_vector_dir.mkdir(parents=True, exist_ok=True)

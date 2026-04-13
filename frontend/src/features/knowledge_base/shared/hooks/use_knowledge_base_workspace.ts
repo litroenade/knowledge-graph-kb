@@ -1,3 +1,5 @@
+import { useMemo } from 'react';
+
 import { use_graph_workspace_state } from './workspace_store/use_graph_workspace_state';
 import { use_import_workspace_state } from './workspace_store/use_import_workspace_state';
 import { use_model_config_workspace_state } from './workspace_store/use_model_config_workspace_state';
@@ -6,9 +8,9 @@ import { use_source_workspace_state } from './workspace_store/use_source_workspa
 import { use_workspace_focus_actions } from './workspace_store/use_workspace_focus_actions';
 import { use_workspace_ui_state } from './workspace_store/use_workspace_ui_state';
 
-const DEFAULT_GRAPH_DENSITY = 88;
+const DEFAULT_GRAPH_DENSITY = 100;
 
-export function use_knowledge_base_workspace_store() {
+export function use_knowledge_base_workspace_slices() {
   const ui = use_workspace_ui_state();
   const source = use_source_workspace_state({
     active_workspace: ui.active_workspace,
@@ -24,6 +26,8 @@ export function use_knowledge_base_workspace_store() {
   });
   const graph = use_graph_workspace_state({
     default_graph_density: DEFAULT_GRAPH_DENSITY,
+    selected_source_browser_id: source.selected_source_browser_id,
+    selected_source_version_id: source.selected_source_version_id,
     set_message: ui.set_message,
     set_error: ui.set_error,
   });
@@ -35,7 +39,7 @@ export function use_knowledge_base_workspace_store() {
   const query = use_query_workspace_state({
     active_workspace: ui.active_workspace,
     query_mode: ui.query_mode,
-    selected_source_ids: graph.selected_source_ids,
+    available_source_ids: source.sources.map((item) => item.id),
     set_active_workspace: ui.set_active_workspace,
     set_last_query_text: ui.set_last_query_text,
     set_message: ui.set_message,
@@ -49,25 +53,45 @@ export function use_knowledge_base_workspace_store() {
     selected_node_id: graph.selected_node_id,
     set_active_workspace: ui.set_active_workspace,
     set_is_source_library_open: ui.set_is_source_library_open,
-    set_include_paragraphs: graph.set_include_paragraphs,
     set_selected_edge_id: graph.set_selected_edge_id,
     set_selected_node_id: graph.set_selected_node_id,
     set_highlighted_node_ids: graph.set_highlighted_node_ids,
     set_highlighted_edge_ids: graph.set_highlighted_edge_ids,
     set_selected_source_browser_id: source.set_selected_source_browser_id,
     set_selected_source_ids: graph.set_selected_source_ids,
+    set_graph_data_view: graph.set_graph_data_view,
+    open_evidence_graph: graph.open_evidence_graph,
     set_density: graph.set_density,
+    set_graph_focus_command: graph.set_graph_focus_command,
   });
 
+  return useMemo(
+    () => ({
+      ui,
+      imports,
+      source,
+      model_config,
+      graph,
+      query,
+      focus,
+    }),
+    [focus, graph, imports, model_config, query, source, ui],
+  );
+}
+
+export function use_knowledge_base_workspace_store() {
+  const slices = use_knowledge_base_workspace_slices();
+
   return {
-    ...ui,
-    ...imports,
-    ...source,
-    ...model_config,
-    ...graph,
-    ...query,
-    ...focus,
+    ...slices.ui,
+    ...slices.imports,
+    ...slices.source,
+    ...slices.model_config,
+    ...slices.graph,
+    ...slices.query,
+    ...slices.focus,
   };
 }
 
 export type KnowledgeBaseWorkspaceStore = ReturnType<typeof use_knowledge_base_workspace_store>;
+export type KnowledgeBaseWorkspaceSlices = ReturnType<typeof use_knowledge_base_workspace_slices>;

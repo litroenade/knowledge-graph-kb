@@ -7,19 +7,13 @@ import {
   update_model_configuration,
 } from '../../api/model_config_api';
 import { kb_query_keys } from '../../api/query_client';
+import { MODEL_PROVIDER_BASE_URLS } from '../../config/ui_constants';
 import type {
   ModelConfigurationDraft,
   ModelConfigurationRecord,
   ModelConfigurationTestRecord,
   WorkspaceTab,
 } from '../../types/knowledge_base_types';
-
-const MODEL_PROVIDER_BASE_URLS: Record<string, string> = {
-  openai: 'https://api.openai.com/v1',
-  openrouter: 'https://openrouter.ai/api/v1',
-  siliconflow: 'https://api.siliconflow.cn/v1',
-  custom: '',
-};
 
 const DEFAULT_MODEL_CONFIGURATION_FORM: ModelConfigurationDraft = {
   provider: 'openai',

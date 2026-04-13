@@ -8,6 +8,7 @@ from src.api.schemas import (
     GraphNodeCreateRequest,
     GraphNodeDetailResponse,
     GraphNodeItem,
+    GraphQueryRequest,
     GraphNodeUpdateRequest,
     GraphResponse,
     ManualRelationItem,
@@ -23,20 +24,51 @@ graph_router = APIRouter(prefix="/api/kb/graph", tags=["kb-graph"])
 source_router = APIRouter(prefix="/api/kb/sources", tags=["kb-sources"])
 
 
-@graph_router.get("", response_model=GraphResponse)
+@graph_router.post("", response_model=GraphResponse)
 def get_graph(
-    source_ids: list[str] | None = Query(default=None),
-    include_paragraphs: bool = Query(default=True),
-    density: int = Query(default=100, ge=5, le=100),
+    payload: GraphQueryRequest,
     graph_service=Depends(get_graph_service),
 ) -> GraphResponse:
-    return GraphResponse(
-        **graph_service.build_graph(
-            source_ids=source_ids,
-            include_paragraphs=include_paragraphs,
-            density=density,
+    try:
+        return GraphResponse(
+            **graph_service.build_graph(
+                scope=payload.scope.model_dump(),
+                view=payload.view,
+                density=payload.density,
+                anchor_node_ids=payload.anchor_node_ids,
+                anchor_edge_ids=payload.anchor_edge_ids,
+            )
         )
-    )
+    except ValueError as exc:
+        raise api_error(status_code=400, code="invalid_graph_query", message=str(exc)) from exc
+
+
+@graph_router.get("", response_model=GraphResponse)
+def get_graph_legacy(
+    source_ids: list[str] = Query(default_factory=list),
+    view: str = Query(default="semantic"),
+    density: int = Query(default=100, ge=1, le=100),
+    graph_service=Depends(get_graph_service),
+) -> GraphResponse:
+    scope = {
+        "mode": "subset" if source_ids else "all",
+        "source_ids": source_ids,
+        "version_mode": "latest",
+        "version_id": None,
+        "excluded_source_ids": [],
+    }
+    try:
+        return GraphResponse(
+            **graph_service.build_graph(
+                scope=scope,
+                view=view,
+                density=density,
+                anchor_node_ids=[],
+                anchor_edge_ids=[],
+            )
+        )
+    except ValueError as exc:
+        raise api_error(status_code=400, code="invalid_graph_query", message=str(exc)) from exc
 
 
 @graph_router.post("/nodes", response_model=GraphNodeItem)
@@ -49,6 +81,7 @@ def create_graph_node(
             label=payload.label,
             description=payload.description,
             source_id=payload.source_id,
+            version_id=payload.version_id,
             metadata=payload.metadata,
         )
     except ValueError as exc:
@@ -57,9 +90,13 @@ def create_graph_node(
 
 
 @graph_router.get("/nodes/{node_id}", response_model=GraphNodeDetailResponse)
-def get_graph_node_detail(node_id: str, graph_service=Depends(get_graph_service)) -> GraphNodeDetailResponse:
+def get_graph_node_detail(
+    node_id: str,
+    version_id: str | None = Query(default=None),
+    graph_service=Depends(get_graph_service),
+) -> GraphNodeDetailResponse:
     try:
-        return GraphNodeDetailResponse(**graph_service.get_node_detail(node_id))
+        return GraphNodeDetailResponse(**graph_service.get_node_detail(node_id, version_id=version_id))
     except KeyError as exc:
         raise api_error(status_code=404, code="graph_node_not_found", message="Graph node not found.") from exc
 
@@ -149,8 +186,12 @@ def list_sources(
 
 
 @source_router.get("/{source_id}", response_model=SourceDetailResponse)
-def get_source_detail(source_id: str, source_service=Depends(get_source_service)) -> SourceDetailResponse:
-    detail = source_service.get_source_detail(source_id)
+def get_source_detail(
+    source_id: str,
+    version_id: str | None = Query(default=None),
+    source_service=Depends(get_source_service),
+) -> SourceDetailResponse:
+    detail = source_service.get_source_detail(source_id, version_id=version_id)
     if detail is None:
         raise api_error(status_code=404, code="source_not_found", message="Source not found.")
     return SourceDetailResponse(**detail)
@@ -186,8 +227,12 @@ def delete_source(source_id: str, graph_service=Depends(get_graph_service)) -> S
 
 
 @source_router.get("/{source_id}/paragraphs", response_model=SourceParagraphsResponse)
-def list_source_paragraphs(source_id: str, source_service=Depends(get_source_service)) -> SourceParagraphsResponse:
-    paragraphs = source_service.list_source_paragraphs(source_id)
+def list_source_paragraphs(
+    source_id: str,
+    version_id: str | None = Query(default=None),
+    source_service=Depends(get_source_service),
+) -> SourceParagraphsResponse:
+    paragraphs = source_service.list_source_paragraphs(source_id, version_id=version_id)
     if paragraphs is None:
         raise api_error(status_code=404, code="source_not_found", message="Source not found.")
     return SourceParagraphsResponse(items=paragraphs)

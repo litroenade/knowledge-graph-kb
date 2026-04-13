@@ -1,4 +1,4 @@
-"""会话存储。"""
+"""Conversation storage."""
 
 import json
 from typing import Any
@@ -9,7 +9,7 @@ from .common import utc_now_iso
 
 
 class ConversationStore:
-    """持久化问答会话与消息。"""
+    """Persist QA sessions and messages."""
 
     def __init__(self, gateway: SQLiteGateway) -> None:
         self.gateway = gateway
@@ -42,7 +42,6 @@ class ConversationStore:
                     payload["last_message_at"],
                 ),
             )
-            connection.commit()
         return payload
 
     def list_sessions(self, *, limit: int = 50) -> list[dict[str, Any]]:
@@ -73,7 +72,6 @@ class ConversationStore:
         params = tuple(encoded_fields.values()) + (session_id,)
         with self.gateway.transaction() as connection:
             connection.execute(f"UPDATE chat_sessions SET {assignments} WHERE id = ?", params)
-            connection.commit()
         return self.get_session(session_id)
 
     def create_message(
@@ -84,6 +82,8 @@ class ConversationStore:
         content: str,
         turn_index: int,
         citations: list[dict[str, Any]] | None = None,
+        scope: dict[str, Any] | None = None,
+        sources: list[dict[str, Any]] | None = None,
         execution: dict[str, Any] | None = None,
         retrieval_trace: dict[str, Any] | None = None,
         highlighted_node_ids: list[str] | None = None,
@@ -99,6 +99,8 @@ class ConversationStore:
             "content": content,
             "turn_index": turn_index,
             "citations": list(citations or []),
+            "scope": dict(scope or {}),
+            "sources": list(sources or []),
             "execution": dict(execution or {}),
             "retrieval_trace": dict(retrieval_trace or {}),
             "highlighted_node_ids": list(highlighted_node_ids or []),
@@ -111,10 +113,10 @@ class ConversationStore:
             connection.execute(
                 """
                 INSERT INTO chat_messages (
-                    id, session_id, role, content, turn_index, citations, execution, retrieval_trace,
+                    id, session_id, role, content, turn_index, citations, scope, sources, execution, retrieval_trace,
                     highlighted_node_ids, highlighted_edge_ids, error, created_at, updated_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     payload["id"],
@@ -123,6 +125,8 @@ class ConversationStore:
                     payload["content"],
                     payload["turn_index"],
                     json.dumps(payload["citations"], ensure_ascii=False),
+                    self.gateway.dump_json(payload["scope"]),
+                    json.dumps(payload["sources"], ensure_ascii=False),
                     self.gateway.dump_json(payload["execution"]),
                     self.gateway.dump_json(payload["retrieval_trace"]),
                     json.dumps(payload["highlighted_node_ids"], ensure_ascii=False),
@@ -140,7 +144,6 @@ class ConversationStore:
                 """,
                 (now, now, session_id),
             )
-            connection.commit()
         return self.get_message(message_id) or payload
 
     def list_messages(self, session_id: str, *, limit: int | None = None) -> list[dict[str, Any]]:
@@ -176,8 +179,11 @@ class ConversationStore:
 
     def _normalize_message_row(self, row: dict[str, Any]) -> dict[str, Any]:
         normalized_row = dict(row)
+        scope = normalized_row.get("scope")
         execution = normalized_row.get("execution")
         retrieval_trace = normalized_row.get("retrieval_trace")
+        if not isinstance(scope, dict) or not str(scope.get("mode") or "").strip():
+            normalized_row["scope"] = None
         if not isinstance(execution, dict) or not dict(execution):
             normalized_row["execution"] = None
         if not isinstance(retrieval_trace, dict) or not dict(retrieval_trace):

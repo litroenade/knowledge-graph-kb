@@ -1,4 +1,4 @@
-import { Suspense, lazy, useEffect, useMemo, useState } from 'react';
+import { Suspense, lazy, useMemo } from 'react';
 
 import type { ResolvedTheme } from '../../../../theme';
 import { WORKSPACE_TABS } from '../config/ui_constants';
@@ -18,20 +18,18 @@ const QueryStudioPanel = lazy(async () => ({
   default: (await import('../../query_studio/components/query_studio_panel')).QueryStudioPanel,
 }));
 
+const ImportCenterPanel = lazy(async () => ({
+  default: (await import('../../import_center/components/import_center_panel')).ImportCenterPanel,
+}));
+
 export function WorkspaceBody(props: WorkspaceBodyProps) {
   const { resolved_theme } = props;
   const { active_workspace } = use_workspace_shell();
-  const [mounted_workspaces, set_mounted_workspaces] = useState<WorkspaceTab[]>(['chat']);
-
-  useEffect(() => {
-    set_mounted_workspaces((current_tabs) =>
-      current_tabs.includes(active_workspace) ? current_tabs : [...current_tabs, active_workspace],
-    );
-  }, [active_workspace]);
 
   const panels: Record<WorkspaceTab, JSX.Element> = useMemo(
     () => ({
       chat: <QueryStudioPanel />,
+      import: <ImportCenterPanel />,
       graph: <GraphBrowserPanel resolved_theme={resolved_theme} />,
     }),
     [resolved_theme],
@@ -40,13 +38,12 @@ export function WorkspaceBody(props: WorkspaceBodyProps) {
   return (
     <div className='kb-workspace-stack'>
       {WORKSPACE_TABS.map((tab) => {
-        if (!mounted_workspaces.includes(tab.id)) {
+        if (active_workspace !== tab.id) {
           return null;
         }
 
-        const is_active = active_workspace === tab.id;
         return (
-          <section aria-hidden={!is_active} className='kb-workspace-view' hidden={!is_active} key={tab.id}>
+          <section aria-hidden='false' className='kb-workspace-view' key={tab.id}>
             <Suspense fallback={<WorkspaceLoadingState description={tab.description} title={tab.label} />}>
               {panels[tab.id]}
             </Suspense>

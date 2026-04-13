@@ -69,6 +69,7 @@ class ModelConfigTestResponse(BaseModel):
 class ParagraphItem(BaseModel):
     id: str
     source_id: str
+    version_id: str
     position: int
     content: str
     knowledge_type: str
@@ -95,6 +96,20 @@ class SourceItem(BaseModel):
     metadata: dict[str, Any] = Field(default_factory=dict)
     created_at: str
     updated_at: str
+    active_version_id: str | None = None
+    active_version_number: int | None = None
+    version_count: int = 0
+
+
+class SourceVersionItem(BaseModel):
+    id: str
+    source_id: str
+    version_number: int
+    status: str
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    created_at: str
+    activated_at: str | None = None
+    updated_at: str
 
 
 class SourceDetailResponse(BaseModel):
@@ -102,6 +117,8 @@ class SourceDetailResponse(BaseModel):
     paragraph_count: int
     entity_count: int
     relation_count: int
+    selected_version: SourceVersionItem | None = None
+    versions: list[SourceVersionItem] = Field(default_factory=list)
 
 
 class SourceParagraphsResponse(BaseModel):
@@ -118,6 +135,7 @@ class GraphNodeItem(BaseModel):
     kind_label: str | None = None
     source_name: str | None = None
     evidence_count: int | None = None
+    family: Literal["semantic", "structure", "evidence"] | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -133,10 +151,12 @@ class GraphEdgeItem(BaseModel):
     source_name: str | None = None
     evidence_paragraph_id: str | None = None
     is_structural: bool | None = None
+    family: Literal["semantic", "structure", "evidence"] | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 class GraphResponse(BaseModel):
+    view: Literal["semantic", "structure", "evidence"] = "semantic"
     nodes: list[GraphNodeItem] = Field(default_factory=list)
     edges: list[GraphEdgeItem] = Field(default_factory=list)
 
@@ -162,6 +182,7 @@ class GraphNodeCreateRequest(BaseModel):
     label: str
     description: str = ""
     source_id: str | None = None
+    version_id: str | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -194,11 +215,32 @@ class SourceUpdateRequest(BaseModel):
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
+class KBScopeItem(BaseModel):
+    mode: Literal["all", "single", "subset"]
+    source_ids: list[str] = Field(default_factory=list)
+    version_mode: Literal["latest", "specific"] = "latest"
+    version_id: str | None = None
+    excluded_source_ids: list[str] = Field(default_factory=list)
+
+
+class AnswerSourceItem(BaseModel):
+    source_id: str
+    version_id: str
+    source_name: str
+    file_path: str | None = None
+    citation_count: int
+    snippet: str | None = None
+
+
 class CitationItem(BaseModel):
     paragraph_id: str
+    chunk_id: str | None = None
     source_id: str
+    version_id: str | None = None
     source_name: str
+    file_path: str | None = None
     excerpt: str
+    snippet: str | None = None
     score: float
     match_reason: str | None = None
     matched_fields: list[str] = Field(default_factory=list)
@@ -207,6 +249,8 @@ class CitationItem(BaseModel):
     page_number: int | None = None
     paragraph_position: int | None = None
     winning_lane: str | None = None
+    start_offset: int | None = None
+    end_offset: int | None = None
     anchor_node_ids: list[str] = Field(default_factory=list)
     preferred_anchor_node_id: str | None = None
     render_kind: Literal["text", "row_record", "sheet_summary"] = "text"
@@ -245,7 +289,7 @@ class ChatSessionCreateRequest(BaseModel):
 
 class ChatMessageCreateRequest(BaseModel):
     content: str
-    source_ids: list[str] | None = None
+    scope: KBScopeItem
     worksheet_names: list[str] | None = None
     top_k: int | None = None
 
@@ -266,6 +310,8 @@ class ChatMessageItem(BaseModel):
     content: str
     turn_index: int
     citations: list[CitationItem] = Field(default_factory=list)
+    scope: KBScopeItem | None = None
+    sources: list[AnswerSourceItem] = Field(default_factory=list)
     execution: AnswerExecutionItem | None = None
     retrieval_trace: RetrievalTraceItem | None = None
     highlighted_node_ids: list[str] = Field(default_factory=list)
@@ -282,10 +328,18 @@ class ChatSessionDetailResponse(BaseModel):
 
 class RecordSearchRequest(BaseModel):
     query: str
-    source_ids: list[str] = Field(default_factory=list)
+    scope: KBScopeItem
     worksheet_names: list[str] = Field(default_factory=list)
     filters: dict[str, str] = Field(default_factory=dict)
     limit: int = 20
+
+
+class GraphQueryRequest(BaseModel):
+    scope: KBScopeItem
+    view: Literal["semantic", "structure", "evidence"] = "semantic"
+    density: int = 100
+    anchor_node_ids: list[str] = Field(default_factory=list)
+    anchor_edge_ids: list[str] = Field(default_factory=list)
 
 
 class RecordSearchItem(BaseModel):

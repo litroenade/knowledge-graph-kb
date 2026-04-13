@@ -1,4 +1,10 @@
-import { useEffect, useMemo, useRef, type CSSProperties, type PointerEvent as ReactPointerEvent } from 'react';
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  type CSSProperties,
+  type PointerEvent as ReactPointerEvent,
+} from 'react';
 
 import type { ResolvedTheme, ThemeMode } from '../../theme';
 import { WorkspaceBody } from './shared/components/workspace_body';
@@ -11,19 +17,24 @@ import './shared/styles/knowledge_base_workspace.css';
 interface KnowledgeBaseWorkspaceProps {
   theme_mode: ThemeMode;
   resolved_theme: ResolvedTheme;
-  set_theme_mode: (theme_mode: ThemeMode) => void;
+  set_theme_mode: (next_theme: ThemeMode) => void;
 }
 
-const MIN_SIDEBAR_WIDTH = 220;
-const MAX_SIDEBAR_WIDTH = 272;
+const MIN_SIDEBAR_WIDTH = 228;
+const MAX_SIDEBAR_WIDTH = 340;
 
 function clamp_sidebar_width(value: number): number {
-  return Math.min(MAX_SIDEBAR_WIDTH, Math.max(MIN_SIDEBAR_WIDTH, value));
+  return Math.max(MIN_SIDEBAR_WIDTH, Math.min(MAX_SIDEBAR_WIDTH, Math.round(value)));
 }
 
 function KnowledgeBaseWorkspaceShell(props: KnowledgeBaseWorkspaceProps) {
   const { resolved_theme } = props;
-  const { sidebar_collapsed, set_sidebar_collapsed, sidebar_width, set_sidebar_width } = use_workspace_shell();
+  const {
+    sidebar_collapsed,
+    set_sidebar_collapsed,
+    sidebar_width,
+    set_sidebar_width,
+  } = use_workspace_shell();
   const shell_ref = useRef<HTMLElement | null>(null);
   const drag_state_ref = useRef<{ offset_left: number } | null>(null);
 
@@ -93,7 +104,7 @@ function KnowledgeBaseWorkspaceShell(props: KnowledgeBaseWorkspaceProps) {
           <div className='kb-sidebar-shell'>
             <WorkspaceOverview collapsed={false} />
             <button
-              aria-label='调整侧栏宽度'
+              aria-label='调整侧边栏宽度'
               className='kb-sidebar-resizer'
               onPointerDown={handle_start_resize}
               type='button'
@@ -102,7 +113,10 @@ function KnowledgeBaseWorkspaceShell(props: KnowledgeBaseWorkspaceProps) {
         ) : null}
 
         <section className='kb-shell-main'>
-          <WorkspaceHeader on_toggle_sidebar={handle_toggle_sidebar} sidebar_collapsed={sidebar_collapsed} />
+          <WorkspaceHeader
+            on_toggle_sidebar={handle_toggle_sidebar}
+            sidebar_collapsed={sidebar_collapsed}
+          />
           <section className='kb-workspace-body'>
             <WorkspaceBody resolved_theme={resolved_theme} />
           </section>

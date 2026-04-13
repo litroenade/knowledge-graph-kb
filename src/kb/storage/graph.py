@@ -132,6 +132,8 @@ class GraphStore:
     def create_relation(
         self,
         *,
+        source_id: str,
+        version_id: str,
         subject_entity_id: str,
         predicate: str,
         object_entity_id: str,
@@ -143,6 +145,8 @@ class GraphStore:
         now = utc_now_iso()
         payload = {
             "id": relation_id,
+            "source_id": source_id,
+            "version_id": version_id,
             "subject_entity_id": subject_entity_id,
             "predicate": predicate,
             "object_entity_id": object_entity_id,
@@ -156,13 +160,15 @@ class GraphStore:
             connection.execute(
                 """
                 INSERT INTO relations (
-                    id, subject_entity_id, predicate, object_entity_id, confidence,
+                    id, source_id, version_id, subject_entity_id, predicate, object_entity_id, confidence,
                     source_paragraph_id, metadata, created_at, updated_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     payload["id"],
+                    payload["source_id"],
+                    payload["version_id"],
                     payload["subject_entity_id"],
                     payload["predicate"],
                     payload["object_entity_id"],
@@ -180,6 +186,8 @@ class GraphStore:
         self,
         *,
         paragraph_id: str,
+        source_id: str,
+        version_id: str,
         entity_id: str,
         mention_count: int,
         metadata: dict[str, Any],
@@ -195,6 +203,8 @@ class GraphStore:
                 payload = {
                     "id": row_id,
                     "paragraph_id": paragraph_id,
+                    "source_id": source_id,
+                    "version_id": version_id,
                     "entity_id": entity_id,
                     "mention_count": mention_count,
                     "metadata": metadata,
@@ -204,13 +214,15 @@ class GraphStore:
                 connection.execute(
                     """
                     INSERT INTO paragraph_entities (
-                        id, paragraph_id, entity_id, mention_count, metadata, created_at, updated_at
+                        id, paragraph_id, source_id, version_id, entity_id, mention_count, metadata, created_at, updated_at
                     )
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         payload["id"],
                         payload["paragraph_id"],
+                        payload["source_id"],
+                        payload["version_id"],
                         payload["entity_id"],
                         payload["mention_count"],
                         self.gateway.dump_json(payload["metadata"]),
@@ -242,6 +254,8 @@ class GraphStore:
         self,
         *,
         paragraph_id: str,
+        source_id: str,
+        version_id: str,
         relation_id: str,
         metadata: dict[str, Any],
     ) -> dict[str, Any]:
@@ -256,6 +270,8 @@ class GraphStore:
                 payload = {
                     "id": row_id,
                     "paragraph_id": paragraph_id,
+                    "source_id": source_id,
+                    "version_id": version_id,
                     "relation_id": relation_id,
                     "metadata": metadata,
                     "created_at": now,
@@ -264,13 +280,15 @@ class GraphStore:
                 connection.execute(
                     """
                     INSERT INTO paragraph_relations (
-                        id, paragraph_id, relation_id, metadata, created_at, updated_at
+                        id, paragraph_id, source_id, version_id, relation_id, metadata, created_at, updated_at
                     )
-                    VALUES (?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         payload["id"],
                         payload["paragraph_id"],
+                        payload["source_id"],
+                        payload["version_id"],
                         payload["relation_id"],
                         self.gateway.dump_json(payload["metadata"]),
                         payload["created_at"],
@@ -520,37 +538,42 @@ class GraphStore:
             )
         return self.gateway.fetch_all("SELECT * FROM sources ORDER BY created_at DESC")
 
-    def list_graph_paragraphs(self, source_ids: list[str] | None = None) -> list[dict[str, Any]]:
-        if source_ids:
+    def list_graph_paragraphs(self, source_version_pairs: list[dict[str, Any]] | None = None) -> list[dict[str, Any]]:
+        if source_version_pairs:
+            clauses: list[str] = []
+            params: list[str] = []
+            for pair in source_version_pairs:
+                clauses.append("(source_id = ? AND version_id = ?)")
+                params.extend([str(pair["source_id"]), str(pair["version_id"])])
             return self.gateway.fetch_all(
-                f"""
-                SELECT *
-                FROM paragraphs
-                WHERE source_id IN ({placeholders(source_ids)})
-                ORDER BY source_id, position
-                """,
-                tuple(source_ids),
+                f"SELECT * FROM paragraphs WHERE {' OR '.join(clauses)} ORDER BY source_id, version_id, position",
+                tuple(params),
             )
-        return self.gateway.fetch_all("SELECT * FROM paragraphs ORDER BY source_id, position")
+        return self.gateway.fetch_all("SELECT * FROM paragraphs ORDER BY source_id, version_id, position")
 
-    def list_graph_entities(self, source_ids: list[str] | None = None) -> list[dict[str, Any]]:
-        if not source_ids:
+    def list_graph_entities(self, source_version_pairs: list[dict[str, Any]] | None = None) -> list[dict[str, Any]]:
+        if not source_version_pairs:
             return self.gateway.fetch_all(
                 "SELECT * FROM entities ORDER BY appearance_count DESC, display_name ASC",
             )
+        clauses: list[str] = []
+        params: list[str] = []
+        for pair in source_version_pairs:
+            clauses.append("(paragraphs.source_id = ? AND paragraphs.version_id = ?)")
+            params.extend([str(pair["source_id"]), str(pair["version_id"])])
         return self.gateway.fetch_all(
             f"""
             SELECT DISTINCT entities.*
             FROM entities
             JOIN paragraph_entities ON paragraph_entities.entity_id = entities.id
             JOIN paragraphs ON paragraphs.id = paragraph_entities.paragraph_id
-            WHERE paragraphs.source_id IN ({placeholders(source_ids)})
+            WHERE {' OR '.join(clauses)}
             ORDER BY entities.appearance_count DESC, entities.display_name ASC
             """,
-            tuple(source_ids),
+            tuple(params),
         )
 
-    def list_graph_relations(self, source_ids: list[str] | None = None) -> list[dict[str, Any]]:
+    def list_graph_relations(self, source_version_pairs: list[dict[str, Any]] | None = None) -> list[dict[str, Any]]:
         base_sql = """
             SELECT
                 relations.*,
@@ -561,11 +584,15 @@ class GraphStore:
             JOIN entities AS object_entity ON object_entity.id = relations.object_entity_id
         """
         rows = self.gateway.fetch_all(base_sql + " ORDER BY relations.created_at DESC")
-        if not source_ids:
+        if not source_version_pairs:
             return rows
 
-        source_id_set = {str(source_id).strip() for source_id in source_ids if str(source_id).strip()}
-        if not source_id_set:
+        pair_set = {
+            (str(pair["source_id"]).strip(), str(pair["version_id"]).strip())
+            for pair in source_version_pairs
+            if str(pair["source_id"]).strip() and str(pair["version_id"]).strip()
+        }
+        if not pair_set:
             return []
 
         paragraph_ids = [
@@ -579,9 +606,12 @@ class GraphStore:
         paragraph_source_by_id: dict[str, str] = {}
         if paragraph_ids:
             paragraph_source_by_id = {
-                str(paragraph["id"]): str(paragraph.get("source_id") or "").strip()
+                str(paragraph["id"]): (
+                    str(paragraph.get("source_id") or "").strip(),
+                    str(paragraph.get("version_id") or "").strip(),
+                )
                 for paragraph in self.gateway.fetch_all(
-                    f"SELECT id, source_id FROM paragraphs WHERE id IN ({placeholders(paragraph_ids)})",
+                    f"SELECT id, source_id, version_id FROM paragraphs WHERE id IN ({placeholders(paragraph_ids)})",
                     tuple(paragraph_ids),
                 )
             }
@@ -589,17 +619,29 @@ class GraphStore:
         filtered_rows: list[dict[str, Any]] = []
         for row in rows:
             metadata = dict(row.get("metadata") or {})
-            relation_source_id = str(metadata.get("source_id") or "").strip()
-            if relation_source_id in source_id_set:
+            relation_pair = (
+                str(row.get("source_id") or metadata.get("source_id") or "").strip(),
+                str(row.get("version_id") or metadata.get("version_id") or "").strip(),
+            )
+            if relation_pair in pair_set:
                 filtered_rows.append(row)
                 continue
             source_paragraph_id = str(row.get("source_paragraph_id") or "").strip()
-            if source_paragraph_id and paragraph_source_by_id.get(source_paragraph_id) in source_id_set:
+            if source_paragraph_id and paragraph_source_by_id.get(source_paragraph_id) in pair_set:
                 filtered_rows.append(row)
         return filtered_rows
 
-    def list_relations_for_source(self, source_id: str, *, limit: int | None = 20) -> list[dict[str, Any]]:
-        relations = self.list_graph_relations([source_id])
+    def list_relations_for_source(
+        self,
+        source_id: str,
+        *,
+        version_id: str | None = None,
+        limit: int | None = 20,
+    ) -> list[dict[str, Any]]:
+        if version_id is None:
+            relations = self.list_relations_referencing_source(source_id)
+        else:
+            relations = self.list_graph_relations([{"source_id": source_id, "version_id": version_id}])
         if limit is None:
             return relations
         return relations[:limit]
@@ -671,7 +713,7 @@ class GraphStore:
         self,
         *,
         paragraph_ids: list[str] | None = None,
-        source_ids: list[str] | None = None,
+        source_version_pairs: list[dict[str, Any]] | None = None,
         entity_id: str | None = None,
     ) -> list[dict[str, Any]]:
         if paragraph_ids is not None and not paragraph_ids:
@@ -683,15 +725,20 @@ class GraphStore:
                 sql += " AND entity_id = ?"
                 params.append(entity_id)
             return self.gateway.fetch_all(sql, tuple(params))
-        if source_ids:
+        if source_version_pairs:
+            clauses: list[str] = []
+            params: list[str] = []
+            for pair in source_version_pairs:
+                clauses.append("(paragraphs.source_id = ? AND paragraphs.version_id = ?)")
+                params.extend([str(pair["source_id"]), str(pair["version_id"])])
             return self.gateway.fetch_all(
                 f"""
                 SELECT paragraph_entities.*
                 FROM paragraph_entities
                 JOIN paragraphs ON paragraphs.id = paragraph_entities.paragraph_id
-                WHERE paragraphs.source_id IN ({placeholders(source_ids)})
+                WHERE {' OR '.join(clauses)}
                 """,
-                tuple(source_ids),
+                tuple(params),
             )
         if entity_id:
             return self.gateway.fetch_all(
@@ -738,14 +785,17 @@ class GraphStore:
         if not normalized_name:
             return ""
         if self._entity_is_source_scoped(metadata):
-            source_id = str(dict(metadata or {}).get("source_id") or "").strip()
-            return f"source:{source_id}::{normalized_name}"
+            metadata_dict = dict(metadata or {})
+            source_id = str(metadata_dict.get("source_id") or "").strip()
+            version_id = str(metadata_dict.get("version_id") or "").strip()
+            return f"source:{source_id}:version:{version_id}::{normalized_name}"
         return normalized_name
 
     def _entity_is_source_scoped(self, metadata: dict[str, Any] | None) -> bool:
         metadata_dict = dict(metadata or {})
         source_id = str(metadata_dict.get("source_id") or "").strip()
-        if not source_id:
+        version_id = str(metadata_dict.get("version_id") or "").strip()
+        if not source_id or not version_id:
             return False
         return True
 

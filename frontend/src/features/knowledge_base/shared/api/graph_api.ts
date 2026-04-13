@@ -3,34 +3,43 @@
  */
 
 import type {
+  GraphDataView,
   GraphEdgeDetailRecord,
   GraphNodeDetailRecord,
+  KBScopeRecord,
   KnowledgeGraphNodeRecord,
   KnowledgeGraphRecord,
   ManualRelationRecord,
 } from '../types/knowledge_base_types';
-import { build_query_string, request_json } from './http_client';
+import { request_json } from './http_client';
 
 interface GraphQueryOptions {
-  source_ids?: string[];
-  include_paragraphs?: boolean;
+  scope: KBScopeRecord;
+  view: GraphDataView;
   density?: number;
+  anchor_node_ids?: string[];
+  anchor_edge_ids?: string[];
 }
 
 export function fetch_graph(options: GraphQueryOptions): Promise<KnowledgeGraphRecord> {
-  return request_json<KnowledgeGraphRecord>(
-    `/api/kb/graph${build_query_string({
-      source_ids: options.source_ids,
-      include_paragraphs: options.include_paragraphs ?? true,
+  return request_json<KnowledgeGraphRecord>('/api/kb/graph', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      scope: options.scope,
+      view: options.view,
       density: options.density ?? 100,
-    })}`,
-  );
+      anchor_node_ids: options.anchor_node_ids ?? [],
+      anchor_edge_ids: options.anchor_edge_ids ?? [],
+    }),
+  });
 }
 
 export function create_graph_node(payload: {
   label: string;
   description?: string;
   source_id?: string | null;
+  version_id?: string | null;
   metadata?: Record<string, unknown>;
 }): Promise<KnowledgeGraphNodeRecord> {
   return request_json<KnowledgeGraphNodeRecord>('/api/kb/graph/nodes', {
@@ -40,8 +49,12 @@ export function create_graph_node(payload: {
   });
 }
 
-export function get_graph_node_detail(node_id: string): Promise<GraphNodeDetailRecord> {
-  return request_json<GraphNodeDetailRecord>(`/api/kb/graph/nodes/${encodeURIComponent(node_id)}`);
+export function get_graph_node_detail(
+  node_id: string,
+  version_id?: string | null,
+): Promise<GraphNodeDetailRecord> {
+  const suffix = version_id ? `?version_id=${encodeURIComponent(version_id)}` : '';
+  return request_json<GraphNodeDetailRecord>(`/api/kb/graph/nodes/${encodeURIComponent(node_id)}${suffix}`);
 }
 
 export function get_graph_edge_detail(edge_id: string): Promise<GraphEdgeDetailRecord> {

@@ -1,4 +1,4 @@
-"""问答会话服务"""
+"""Conversation service."""
 
 from typing import Any
 
@@ -7,15 +7,16 @@ from src.kb.providers import OpenAiConfigurationError, OpenAiRequestError
 from src.kb.storage import ConversationStore
 from src.utils.logger import get_logger
 
+from ..retrieval.types import KBScope
 from .answer import AnswerService
 
 logger = get_logger(__name__)
 
 
 class ConversationService:
-    """管理持久化问答会话与消息"""
+    """Manage persisted QA sessions and messages."""
 
-    DEFAULT_SESSION_TITLE = "新对话"
+    DEFAULT_SESSION_TITLE = "New Chat"
 
     def __init__(
         self,
@@ -33,16 +34,12 @@ class ConversationService:
 
     def create_session(self, *, title: str | None = None, metadata: dict[str, Any] | None = None) -> dict[str, Any]:
         normalized_title = str(title or "").strip() or self.DEFAULT_SESSION_TITLE
-        session = self.store.create_session(title=normalized_title, metadata=metadata)
-        logger.info("Created chat session: session_id=%s title=%s", str(session.get("id") or ""), normalized_title)
-        return session
+        return self.store.create_session(title=normalized_title, metadata=metadata)
 
     def get_session(self, session_id: str) -> dict[str, Any] | None:
         session = self.store.get_session(session_id)
         if session is None:
-            logger.debug("聊天会话不存在：session_id=%s", session_id)
             return None
-        logger.debug("开始回读聊天会话：session_id=%s", session_id)
         return self._hydrate_session_with_rendering(session)
 
     def post_user_message(
@@ -50,7 +47,7 @@ class ConversationService:
         *,
         session_id: str,
         content: str,
-        source_ids: list[str] | None = None,
+        scope: dict[str, Any],
         worksheet_names: list[str] | None = None,
         top_k: int | None = None,
     ) -> dict[str, Any]:
@@ -61,46 +58,32 @@ class ConversationService:
         normalized_content = str(content or "").strip()
         if not normalized_content:
             raise ValueError("Message content cannot be empty.")
+        normalized_scope = KBScope.from_payload(scope)
 
         existing_messages = self.store.list_messages(session_id)
         user_turn_count = sum(1 for message in existing_messages if str(message.get("role") or "") == "user")
         turn_index = user_turn_count + 1
-        logger.info(
-            "Processing chat message: session_id=%s turn_index=%s query_length=%s source_count=%s worksheet_count=%s top_k=%s",
-            session_id,
-            turn_index,
-            len(normalized_content),
-            len(source_ids or []),
-            len(worksheet_names or []),
-            top_k or self.settings.query_context_chunks,
-        )
         self.store.create_message(
             session_id=session_id,
             role="user",
             content=normalized_content,
             turn_index=turn_index,
+            scope=normalized_scope.to_dict(),
         )
         self._update_session_after_user_message(
             session=session,
             session_id=session_id,
             content=normalized_content,
             existing_messages=existing_messages,
-            source_ids=source_ids,
+            scope=normalized_scope.to_dict(),
             worksheet_names=worksheet_names,
         )
 
         recent_history = self._history_context(existing_messages)
-        logger.debug(
-            "聊天上下文已准备：session_id=%s turn_index=%s history_message_count=%s history_turn_count=%s",
-            session_id,
-            turn_index,
-            len(existing_messages),
-            len(recent_history),
-        )
         try:
             answer_payload = self.answer_service.answer(
                 query=normalized_content,
-                source_ids=source_ids,
+                scope=normalized_scope.to_dict(),
                 worksheet_names=worksheet_names,
                 top_k=top_k or self.settings.query_context_chunks,
                 conversation_history=recent_history,
@@ -109,6 +92,7 @@ class ConversationService:
             self._persist_failed_assistant_message(
                 session_id=session_id,
                 turn_index=turn_index,
+                scope=normalized_scope.to_dict(),
                 exc=exc,
             )
             raise
@@ -118,6 +102,8 @@ class ConversationService:
             content=str(answer_payload["answer"]),
             turn_index=turn_index,
             citations=list(answer_payload.get("citations") or []),
+            scope=dict(answer_payload.get("scope") or normalized_scope.to_dict()),
+            sources=list(answer_payload.get("sources") or []),
             execution=dict(answer_payload.get("execution") or {}),
             retrieval_trace=dict(answer_payload.get("retrieval_trace") or {}),
             highlighted_node_ids=list(answer_payload.get("highlighted_node_ids") or []),
@@ -126,38 +112,18 @@ class ConversationService:
         refreshed_session = self.store.get_session(session_id)
         if refreshed_session is None:
             raise ValueError("Chat session could not be reloaded after message persistence.")
-        hydrated_session = self._hydrate_session_with_rendering(refreshed_session)
-        logger.info(
-            "Chat message processed: session_id=%s turn_index=%s answer_status=%s retrieval_mode=%s citation_count=%s",
-            session_id,
-            turn_index,
-            str(answer_payload.get("execution", {}).get("status") or "unknown"),
-            str(answer_payload.get("execution", {}).get("retrieval_mode") or "none"),
-            len(list(answer_payload.get("citations") or [])),
-        )
-        return hydrated_session
+        return self._hydrate_session_with_rendering(refreshed_session)
 
     def _hydrate_session_with_rendering(self, session: dict[str, Any]) -> dict[str, Any]:
         hydrated_session = self.store.hydrate_session(session)
         hydrated_messages: list[dict[str, Any]] = []
-        assistant_count = 0
-        citation_count = 0
         for message in list(hydrated_session.get("messages") or []):
             normalized_message = dict(message)
             if str(normalized_message.get("role") or "") == "assistant":
-                assistant_count += 1
-                citation_count += len(list(normalized_message.get("citations") or []))
                 normalized_message["citations"] = self.answer_service.hydrate_citations(
                     list(normalized_message.get("citations") or [])
                 )
             hydrated_messages.append(normalized_message)
-        logger.debug(
-            "聊天会话渲染补全完成：session_id=%s message_count=%s assistant_count=%s citation_count=%s",
-            str(hydrated_session.get("id") or ""),
-            len(hydrated_messages),
-            assistant_count,
-            citation_count,
-        )
         return {**hydrated_session, "messages": hydrated_messages}
 
     def _update_session_after_user_message(
@@ -167,24 +133,18 @@ class ConversationService:
         session_id: str,
         content: str,
         existing_messages: list[dict[str, Any]],
-        source_ids: list[str] | None,
+        scope: dict[str, Any],
         worksheet_names: list[str] | None,
     ) -> None:
         should_update_title = not existing_messages and str(session.get("title") or "").strip() == self.DEFAULT_SESSION_TITLE
-        should_update_metadata = source_ids is not None or worksheet_names is not None
-        if not should_update_title and not should_update_metadata:
-            return
+        next_metadata = dict(session.get("metadata", {}))
+        next_metadata["scope"] = dict(scope)
+        if worksheet_names is not None:
+            next_metadata["worksheet_names"] = list(worksheet_names)
 
-        update_payload: dict[str, Any] = {}
+        update_payload: dict[str, Any] = {"metadata": next_metadata}
         if should_update_title:
             update_payload["title"] = self._title_from_content(content)
-        if should_update_metadata:
-            next_metadata = dict(session.get("metadata", {}))
-            if source_ids is not None:
-                next_metadata["source_ids"] = list(source_ids)
-            if worksheet_names is not None:
-                next_metadata["worksheet_names"] = list(worksheet_names)
-            update_payload["metadata"] = next_metadata
         self.store.update_session(session_id, **update_payload)
 
     def _persist_failed_assistant_message(
@@ -192,6 +152,7 @@ class ConversationService:
         *,
         session_id: str,
         turn_index: int,
+        scope: dict[str, Any],
         exc: Exception,
     ) -> None:
         error_message = self._error_message_from_exception(exc)
@@ -201,6 +162,7 @@ class ConversationService:
                 role="assistant",
                 content=error_message,
                 turn_index=turn_index,
+                scope=scope,
                 execution={
                     "status": "failed",
                     "retrieval_mode": "none",
@@ -210,25 +172,15 @@ class ConversationService:
                 },
                 error=error_message,
             )
-            logger.warning(
-                "已为失败的问答请求补写助手错误消息：session_id=%s turn_index=%s error_type=%s",
-                session_id,
-                turn_index,
-                exc.__class__.__name__,
-            )
         except Exception:  # noqa: BLE001
-            logger.exception(
-                "问答失败后补写助手错误消息时再次失败：session_id=%s turn_index=%s",
-                session_id,
-                turn_index,
-            )
+            logger.exception("Failed to persist assistant error message after QA failure: session_id=%s", session_id)
 
     def _error_message_from_exception(self, exc: Exception) -> str:
         if isinstance(exc, (OpenAiConfigurationError, OpenAiRequestError, ValueError)):
             message = str(exc).strip()
             if message:
                 return message
-        return "系统处理当前消息时失败，请稍后重试。"
+        return "The system could not process the current message."
 
     def _history_context(self, messages: list[dict[str, Any]]) -> list[dict[str, str]]:
         if not messages:

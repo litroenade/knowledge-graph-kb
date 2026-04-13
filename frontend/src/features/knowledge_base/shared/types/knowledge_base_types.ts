@@ -81,6 +81,7 @@ export interface KnowledgeGraphNodeRecord {
   kind_label?: string | null;
   source_name?: string | null;
   evidence_count?: number | null;
+  family?: GraphDataView | null;
   metadata: Record<string, unknown>;
 }
 
@@ -96,10 +97,12 @@ export interface KnowledgeGraphEdgeRecord {
   source_name?: string | null;
   evidence_paragraph_id?: string | null;
   is_structural?: boolean | null;
+  family?: GraphDataView | null;
   metadata: Record<string, unknown>;
 }
 
 export interface KnowledgeGraphRecord {
+  view?: GraphDataView;
   nodes: KnowledgeGraphNodeRecord[];
   edges: KnowledgeGraphEdgeRecord[];
 }
@@ -130,11 +133,35 @@ export interface ManualRelationRecord {
 
 export type ParagraphRenderKind = 'text' | 'row_record' | 'sheet_summary';
 
+export type KBScopeMode = 'all' | 'single' | 'subset';
+export type KBVersionMode = 'latest' | 'specific';
+
+export interface KBScopeRecord {
+  mode: KBScopeMode;
+  source_ids: string[];
+  version_mode: KBVersionMode;
+  version_id?: string | null;
+  excluded_source_ids: string[];
+}
+
+export interface AnswerSourceRecord {
+  source_id: string;
+  version_id: string;
+  source_name: string;
+  file_path?: string | null;
+  citation_count: number;
+  snippet?: string | null;
+}
+
 export interface AnswerCitationRecord {
   paragraph_id: string;
+  chunk_id?: string | null;
   source_id: string;
+  version_id?: string | null;
   source_name: string;
+  file_path?: string | null;
   excerpt: string;
+  snippet?: string | null;
   score: number;
   match_reason?: string | null;
   matched_fields?: string[];
@@ -143,6 +170,8 @@ export interface AnswerCitationRecord {
   page_number?: number | null;
   paragraph_position?: number | null;
   winning_lane?: string | null;
+  start_offset?: number | null;
+  end_offset?: number | null;
   anchor_node_ids?: string[];
   preferred_anchor_node_id?: string | null;
   render_kind: ParagraphRenderKind;
@@ -190,6 +219,8 @@ export interface ChatMessageRecord {
   content: string;
   turn_index: number;
   citations: AnswerCitationRecord[];
+  scope: KBScopeRecord | null;
+  sources: AnswerSourceRecord[];
   execution: AnswerExecutionRecord | null;
   retrieval_trace: RetrievalTraceRecord | null;
   highlighted_node_ids: string[];
@@ -259,6 +290,20 @@ export interface SourceRecord {
   metadata: Record<string, unknown>;
   created_at: string;
   updated_at: string;
+  active_version_id?: string | null;
+  active_version_number?: number | null;
+  version_count?: number;
+}
+
+export interface SourceVersionRecord {
+  id: string;
+  source_id: string;
+  version_number: number;
+  status: string;
+  metadata: Record<string, unknown>;
+  created_at: string;
+  activated_at?: string | null;
+  updated_at: string;
 }
 
 export interface SourceDetailRecord {
@@ -266,6 +311,8 @@ export interface SourceDetailRecord {
   paragraph_count: number;
   entity_count: number;
   relation_count: number;
+  selected_version?: SourceVersionRecord | null;
+  versions: SourceVersionRecord[];
 }
 
 export type ModelProvider = 'openai' | 'openrouter' | 'siliconflow' | 'custom';
@@ -304,6 +351,7 @@ export interface ModelConfigurationTestRecord {
 export interface ParagraphRecord {
   id: string;
   source_id: string;
+  version_id: string;
   position: number;
   content: string;
   knowledge_type: string;
@@ -317,15 +365,68 @@ export interface ParagraphRecord {
   updated_at: string;
 }
 
-export type WorkspaceTab = 'chat' | 'graph';
+export type WorkspaceTab = 'chat' | 'import' | 'graph';
 export type ImportMode = 'upload' | 'paste' | 'scan' | 'openie' | 'convert';
 export type QueryMode = 'answer' | 'record' | 'entity' | 'relation' | 'source';
 export type GraphViewportMode = 'fit-all' | 'focus-selection';
+export type GraphViewportAction =
+  | 'fit-all'
+  | 'focus-selection'
+  | 'zoom-in'
+  | 'zoom-out'
+  | 'relayout';
 export type GraphDrawerMode = 'filters' | 'create-node' | 'relation' | 'inspector' | null;
-export type GraphLayerMode = 'semantic' | 'evidence' | 'structure';
+export type GraphDataView = 'semantic' | 'evidence' | 'structure';
+export type GraphLayerMode = GraphDataView;
 export type GraphViewMode = 'global' | 'local';
+export type GraphFocusReason = 'entity' | 'relation' | 'source' | 'paragraph' | 'citation';
+export type GraphViewIntent = 'overview' | 'reading';
 
 export interface LocalGraphState {
   anchor_node_id: string | null;
-  depth: 1;
+  depth: number;
+}
+
+export interface GraphViewportRequest {
+  id: number;
+  type: GraphViewportAction;
+  mode: GraphViewportMode;
+  reason: 'initial-load' | 'user' | 'mode-change' | 'focus-command' | 'refresh';
+}
+
+export interface GraphProjectionSummary {
+  scope_node_count: number;
+  scope_edge_count: number;
+  visible_node_count: number;
+  visible_edge_count: number;
+  visible_entity_count: number;
+  visible_semantic_edge_count: number;
+  visible_source_anchor_count: number;
+  visible_provenance_edge_count: number;
+  focus_component_count: number;
+  hidden_component_count: number;
+}
+
+export interface GraphReadingLens {
+  mode: GraphViewIntent;
+  anchor_node_ids: string[];
+  anchor_edge_ids: string[];
+  context_node_ids: string[];
+  context_edge_ids: string[];
+}
+
+export interface GraphFocusCommand {
+  id: number;
+  target: 'graph' | 'source-browser';
+  reason: GraphFocusReason;
+  graph_data_view: GraphDataView;
+  view_intent: GraphViewIntent;
+  graph_view_mode: GraphViewMode;
+  selected_node_id: string | null;
+  selected_edge_id: string | null;
+  highlighted_node_ids: string[];
+  highlighted_edge_ids: string[];
+  source_ids: string[];
+  layer_modes: GraphLayerMode[];
+  viewport_action: GraphViewportAction;
 }

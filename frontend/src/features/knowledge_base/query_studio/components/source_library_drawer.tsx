@@ -21,6 +21,7 @@ import type {
   ParagraphRecord,
   SourceDetailRecord,
   SourceRecord,
+  SourceVersionRecord,
 } from '../../shared/types/knowledge_base_types';
 
 function source_summary(source: SourceRecord): string {
@@ -31,6 +32,10 @@ function is_source_in_scope(source_id: string, selected_source_ids: string[]): b
   return !selected_source_ids.length || selected_source_ids.includes(source_id);
 }
 
+function format_version_label(version: SourceVersionRecord): string {
+  return `v${version.version_number} · ${version.status.toUpperCase()}`;
+}
+
 interface SourceLibraryDrawerProps {
   open: boolean;
   sources: SourceRecord[];
@@ -38,6 +43,10 @@ interface SourceLibraryDrawerProps {
   set_selected_source_ids: Dispatch<SetStateAction<string[]>>;
   selected_source_browser_id: string | null;
   set_selected_source_browser_id: Dispatch<SetStateAction<string | null>>;
+  selected_source_version_id: string | null;
+  set_selected_source_version_id: Dispatch<SetStateAction<string | null>>;
+  query_scope_source_id: string | null;
+  set_query_scope_version_id: (version_id: string | null) => void;
   source_detail: SourceDetailRecord | null;
   source_paragraphs: ParagraphRecord[];
   is_updating_source: boolean;
@@ -59,6 +68,10 @@ export function SourceLibraryDrawer(props: SourceLibraryDrawerProps) {
     set_selected_source_ids,
     selected_source_browser_id,
     set_selected_source_browser_id,
+    selected_source_version_id,
+    set_selected_source_version_id,
+    query_scope_source_id,
+    set_query_scope_version_id,
     source_detail,
     source_paragraphs,
     is_updating_source,
@@ -189,6 +202,10 @@ export function SourceLibraryDrawer(props: SourceLibraryDrawerProps) {
                     </button>
 
                     <div className='kb-meta-strip'>
+                      <span className='kb-meta-pill'>
+                        {source.active_version_number ? `v${source.active_version_number}` : '无快照'}
+                      </span>
+                      <span className='kb-meta-pill'>{`${source.version_count ?? 0} 个快照`}</span>
                       <span className='kb-meta-pill'>{get_input_mode_label(source.input_mode)}</span>
                       <span className='kb-meta-pill'>{get_status_label(source.status)}</span>
                       <span className='kb-meta-pill'>{get_strategy_label(source.strategy)}</span>
@@ -233,6 +250,11 @@ export function SourceLibraryDrawer(props: SourceLibraryDrawerProps) {
               </p>
               {source_detail ? (
                 <div className='kb-meta-strip'>
+                  <span className='kb-meta-pill'>
+                    {source_detail.selected_version
+                      ? format_version_label(source_detail.selected_version)
+                      : '未选择快照'}
+                  </span>
                   <span className='kb-meta-pill'>{`段落 ${source_detail.paragraph_count}`}</span>
                   <span className='kb-meta-pill'>{`实体 ${source_detail.entity_count}`}</span>
                   <span className='kb-meta-pill'>{`关系 ${source_detail.relation_count}`}</span>
@@ -241,6 +263,28 @@ export function SourceLibraryDrawer(props: SourceLibraryDrawerProps) {
 
               {active_source ? (
                 <>
+                  {source_detail?.versions.length ? (
+                    <label className='kb-form-field'>
+                      <span>快照</span>
+                      <select
+                        onChange={(event) => {
+                          const next_version_id = event.target.value || null;
+                          set_selected_source_version_id(next_version_id);
+                          if (query_scope_source_id === active_source.id) {
+                            set_query_scope_version_id(next_version_id);
+                          }
+                        }}
+                        value={selected_source_version_id ?? source_detail.selected_version?.id ?? ''}
+                      >
+                        {source_detail.versions.map((version) => (
+                          <option key={version.id} value={version.id}>
+                            {format_version_label(version)}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  ) : null}
+
                   <label className='kb-form-field'>
                     <span>来源名称</span>
                     <input
@@ -329,6 +373,11 @@ export function SourceLibraryDrawer(props: SourceLibraryDrawerProps) {
                             text_content={paragraph.content}
                           />
                           <div className='kb-meta-strip'>
+                            <span className='kb-meta-pill'>
+                              {source_detail?.selected_version
+                                ? `v${source_detail.selected_version.version_number}`
+                                : paragraph.version_id.slice(0, 8)}
+                            </span>
                             <span className='kb-meta-pill'>{get_vector_state_label(paragraph.vector_state)}</span>
                             <span className='kb-meta-pill'>{`Token ${paragraph.token_count}`}</span>
                           </div>

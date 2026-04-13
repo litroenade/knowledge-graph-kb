@@ -1,4 +1,4 @@
-"""面向结构化知识的段落检索器。"""
+"""Structured paragraph retriever for row-like knowledge."""
 
 from collections.abc import Iterable
 import re
@@ -7,36 +7,37 @@ from typing import Any
 
 from src.kb.importing.excel import normalize_column_name
 from src.kb.storage import RecordStore
-from src.utils.logger import get_logger
 
 from .types import ParagraphHit, RetrievalLaneTrace, RetrievalRequest
 
 TOKEN_PATTERN = re.compile(r"[\w\u4e00-\u9fff]+", re.UNICODE)
-logger = get_logger(__name__)
 
 
 class StructuredParagraphRetriever:
-    """从表格记录和结构化行内容中返回段落命中结果。"""
+    """Return paragraph hits from structured row records."""
 
     def __init__(self, *, record_store: RecordStore) -> None:
         self.record_store = record_store
 
     def retrieve(self, request: RetrievalRequest) -> tuple[list[ParagraphHit], RetrievalLaneTrace]:
-        """执行结构化检索并输出段落命中和检索轨迹。"""
-
         start_time = perf_counter()
         normalized_query = str(request.query or "").strip()
         if not normalized_query:
-            logger.info("结构化检索跳过：问题为空。")
             return [], self._trace(executed=False, skipped_reason="empty_query", start_time=start_time, hits=[])
 
         rows = self.record_store.list_candidate_rows(
-            source_ids=request.source_ids or None,
+            source_version_pairs=[
+                {
+                    "source_id": pair.source_id,
+                    "version_id": pair.version_id,
+                }
+                for pair in request.scope_pairs
+            ]
+            or None,
             worksheet_names=request.worksheet_names or None,
             filters=request.filters or None,
         )
         if not rows:
-            logger.info("结构化检索未找到候选记录：query_length=%s", len(normalized_query))
             return [], self._trace(executed=True, skipped_reason=None, start_time=start_time, hits=[])
 
         cell_map = self.record_store.list_cells([str(row["id"]) for row in rows])
@@ -58,10 +59,12 @@ class StructuredParagraphRetriever:
                 ParagraphHit(
                     paragraph_id=str(row["paragraph_id"]),
                     source_id=str(row["source_id"]),
+                    version_id=str(row.get("version_id") or ""),
                     score=score,
                     rank=0,
                     retriever="structured",
                     match_type=match_type,
+                    file_path=str(row.get("file_path") or "").strip() or None,
                     metadata={
                         "record_row_id": str(row["id"]),
                         "row_index": int(row.get("row_index") or 0),
@@ -88,13 +91,6 @@ class StructuredParagraphRetriever:
         )
         for index, hit in enumerate(hits, start=1):
             hit.rank = index
-        logger.info(
-            "结构化检索完成：query_length=%s candidate_row_count=%s hit_count=%s worksheet_scope_count=%s",
-            len(normalized_query),
-            len(rows),
-            len(hits),
-            len(request.worksheet_names or []),
-        )
         return hits, self._trace(executed=True, skipped_reason=None, start_time=start_time, hits=hits)
 
     def _score_row(
@@ -106,8 +102,6 @@ class StructuredParagraphRetriever:
         row: dict[str, Any],
         cells: list[dict[str, Any]],
     ) -> tuple[float, str | None, list[str]]:
-        """为单条记录计算结构化匹配分数。"""
-
         score = 0.0
         match_type: str | None = None
         matched_cells: list[str] = []
@@ -156,8 +150,6 @@ class StructuredParagraphRetriever:
         start_time: float,
         hits: Iterable[ParagraphHit],
     ) -> RetrievalLaneTrace:
-        """构造结构化检索链路的轨迹信息。"""
-
         hit_list = list(hits)
         return RetrievalLaneTrace(
             executed=executed,
@@ -168,6 +160,4 @@ class StructuredParagraphRetriever:
         )
 
     def _tokenize(self, text: str) -> set[str]:
-        """把文本拆成归一化后的检索词元集合。"""
-
         return {token.casefold() for token in TOKEN_PATTERN.findall(text) if token.strip()}

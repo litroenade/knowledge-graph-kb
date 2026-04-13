@@ -1,7 +1,6 @@
 import type {
   GraphViewMode,
   GraphViewportMode,
-  ImportMode,
   ModelProvider,
   QueryMode,
   WorkspaceTab,
@@ -14,6 +13,11 @@ export const WORKSPACE_TABS: Array<{ id: WorkspaceTab; label: string; descriptio
     description: '查看回答、来源和检索诊断。',
   },
   {
+    id: 'import',
+    label: '导入中心',
+    description: '提交导入任务并跟踪处理进度。',
+  },
+  {
     id: 'graph',
     label: '知识图谱',
     description: '阅读语义主图，并从属性面板下钻证据。',
@@ -22,23 +26,24 @@ export const WORKSPACE_TABS: Array<{ id: WorkspaceTab; label: string; descriptio
 
 export const WORKSPACE_LABELS: Record<WorkspaceTab, string> = {
   chat: '知识问答',
+  import: '导入中心',
   graph: '知识图谱',
 };
 
 export const QUERY_MODE_OPTIONS: Array<{ id: QueryMode; label: string; description: string }> = [
   { id: 'answer', label: '问答', description: '基于知识库生成回答。' },
-  { id: 'record', label: '记录', description: '检索表格记录和结构化条目。' },
-  { id: 'entity', label: '实体', description: '检索知识图谱中的实体节点。' },
-  { id: 'relation', label: '关系', description: '检索实体之间的关系。' },
-  { id: 'source', label: '来源', description: '检索来源文件和来源摘要。' },
+  { id: 'record', label: '记录', description: '搜索表格记录和结构化条目。' },
+  { id: 'entity', label: '实体', description: '搜索知识图谱中的实体节点。' },
+  { id: 'relation', label: '关系', description: '搜索实体之间的语义关系。' },
+  { id: 'source', label: '来源', description: '搜索来源文件和来源摘要。' },
 ];
 
 export const QUERY_MODE_LABELS: Record<QueryMode, string> = {
   answer: '问答',
-  record: '记录检索',
-  entity: '实体检索',
-  relation: '关系检索',
-  source: '来源检索',
+  record: '记录搜索',
+  entity: '实体搜索',
+  relation: '关系搜索',
+  source: '来源搜索',
 };
 
 export const GRAPH_VIEW_MODE_LABELS: Record<GraphViewMode, string> = {
@@ -89,7 +94,7 @@ export const MODEL_PROVIDER_OPTIONS: Array<{
   {
     id: 'custom',
     label: '自定义',
-    description: '使用自定义兼容 OpenAI 的接口地址。',
+    description: '使用自定义的 OpenAI 兼容接口地址。',
     base_url: '',
   },
 ];
@@ -145,9 +150,11 @@ const VECTOR_STATE_LABELS: Record<string, string> = {
 
 const API_KEY_SOURCE_LABELS: Record<string, string> = {
   none: '未配置',
-  env: '环境变量',
-  config: '配置文件',
+  saved: '已保存配置',
   request: '当前表单',
+  environment: '环境变量（旧配置）',
+  env: '环境变量（旧配置）',
+  config: '配置文件（旧配置）',
 };
 
 function label_from_map(value: string, mapping: Record<string, string>, fallback: string): string {
@@ -176,34 +183,4 @@ export function get_vector_state_label(value: string): string {
 
 export function get_api_key_source_label(value: string): string {
   return label_from_map(value, API_KEY_SOURCE_LABELS, '未知来源');
-}
-
-export function get_workspace_label(value: WorkspaceTab): string {
-  return WORKSPACE_LABELS[value];
-}
-
-export function get_query_mode_label(value: QueryMode): string {
-  return QUERY_MODE_LABELS[value];
-}
-
-export function get_graph_view_mode_label(value: GraphViewMode): string {
-  return GRAPH_VIEW_MODE_LABELS[value];
-}
-
-export function get_graph_viewport_mode_label(value: GraphViewportMode): string {
-  return GRAPH_VIEWPORT_MODE_LABELS[value];
-}
-
-export function get_node_type_label(value: string): string {
-  return NODE_TYPE_LABELS[value] ?? value;
-}
-
-export function get_import_mode_options(): Array<{ id: ImportMode; label: string }> {
-  return [
-    { id: 'upload', label: get_input_mode_label('upload') },
-    { id: 'paste', label: get_input_mode_label('paste') },
-    { id: 'scan', label: get_input_mode_label('scan') },
-    { id: 'openie', label: get_input_mode_label('openie') },
-    { id: 'convert', label: get_input_mode_label('convert') },
-  ];
 }

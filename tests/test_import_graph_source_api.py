@@ -78,7 +78,11 @@ def test_import_job_source_update_graph_create_and_backup(client: TestClient, tm
 
     maintenance = client.app.state.kb_container.maintenance_service
     doctor_result = maintenance.doctor()
-    assert doctor_result["status"] == "ok"
+    assert doctor_result["status"] == "needs_attention"
+    assert any(
+        check["name"] == "model_config" and check["ok"] is False
+        for check in doctor_result["checks"]
+    )
 
     backup_result = maintenance.backup(output_dir=tmp_path / "backup")
     backup_dir = Path(backup_result["backup_dir"])
@@ -88,7 +92,6 @@ def test_import_job_source_update_graph_create_and_backup(client: TestClient, tm
     restore_settings = Settings(
         kb_data_dir=str(tmp_path / "restored-kb"),
         frontend_dist_dir=str(client.app.state.kb_container.settings.resolved_frontend_dist_dir),
-        openai_api_key="test-api-key",
     )
     restore_result = restore_backup(settings=restore_settings, backup_dir=backup_dir, force=True)
     assert restore_result["status"] == "ok"
