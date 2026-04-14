@@ -131,7 +131,7 @@ export interface ManualRelationRecord {
   updated_at: string;
 }
 
-export type ParagraphRenderKind = 'text' | 'row_record' | 'sheet_summary';
+export type ParagraphRenderKind = 'text' | 'row_record' | 'sheet_summary' | 'worksheet_preview';
 
 export type KBScopeMode = 'all' | 'single' | 'subset';
 export type KBVersionMode = 'latest' | 'specific';
@@ -167,6 +167,9 @@ export interface AnswerCitationRecord {
   matched_fields?: string[];
   source_kind?: string | null;
   worksheet_name?: string | null;
+  worksheet_key?: string | null;
+  row_index?: number | null;
+  anchor_row_index?: number | null;
   page_number?: number | null;
   paragraph_position?: number | null;
   winning_lane?: string | null;
@@ -313,6 +316,44 @@ export interface SourceDetailRecord {
   relation_count: number;
   selected_version?: SourceVersionRecord | null;
   versions: SourceVersionRecord[];
+}
+
+export interface WorksheetSummaryRecord {
+  worksheet_key: string;
+  worksheet_name: string;
+  row_count: number;
+  headers: string[];
+  column_keys: string[];
+}
+
+export interface WorksheetPreviewPageItemRecord {
+  paragraph_id: string | null;
+  row_index: number;
+  record_key: string | null;
+  cells: Record<string, string>;
+}
+
+export interface WorksheetPreviewRecord {
+  source_id: string;
+  version_id: string | null;
+  worksheet_key: string;
+  worksheet_name: string;
+  headers: string[];
+  column_keys: string[];
+  items: WorksheetPreviewPageItemRecord[];
+  render_kind: 'worksheet_preview';
+  rendered_html: string | null;
+  render_metadata: Record<string, unknown>;
+  page: number;
+  page_size: number;
+  total_rows: number;
+  has_prev: boolean;
+  has_next: boolean;
+  row_range_start: number;
+  row_range_end: number;
+  anchor_row_index: number | null;
+  highlighted_row_indexes: number[];
+  highlighted_columns: string[];
 }
 
 export type ModelProvider = 'openai' | 'openrouter' | 'siliconflow' | 'custom';

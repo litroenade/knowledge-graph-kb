@@ -21,6 +21,13 @@ interface WorkspaceFocusActionsProps {
   set_highlighted_edge_ids: Dispatch<SetStateAction<string[]>>;
   set_selected_source_browser_id: Dispatch<SetStateAction<string | null>>;
   set_selected_source_ids: Dispatch<SetStateAction<string[]>>;
+  open_source_worksheet_preview: (payload: {
+    source_id: string;
+    version_id?: string | null;
+    worksheet_key?: string | null;
+    anchor_row_index?: number | null;
+    highlighted_columns?: string[];
+  }) => void;
   set_graph_data_view: (view: GraphDataView) => void;
   open_evidence_graph: (payload?: { node_ids?: string[]; edge_ids?: string[] }) => void;
   set_density: Dispatch<SetStateAction<number>>;
@@ -30,6 +37,13 @@ interface WorkspaceFocusActionsProps {
 interface CitationFocusOptions {
   preferred_anchor_node_id?: string | null;
   anchor_node_ids?: string[];
+}
+
+interface SourceFocusOptions {
+  version_id?: string | null;
+  worksheet_key?: string | null;
+  anchor_row_index?: number | null;
+  highlighted_columns?: string[];
 }
 
 export function use_workspace_focus_actions(props: WorkspaceFocusActionsProps) {
@@ -45,6 +59,7 @@ export function use_workspace_focus_actions(props: WorkspaceFocusActionsProps) {
     set_highlighted_edge_ids,
     set_selected_source_browser_id,
     set_selected_source_ids,
+    open_source_worksheet_preview,
     set_graph_data_view,
     open_evidence_graph,
     set_density,
@@ -182,7 +197,7 @@ export function use_workspace_focus_actions(props: WorkspaceFocusActionsProps) {
     });
   }
 
-  function focus_source(source_id: string): void {
+  function focus_source(source_id: string, options?: SourceFocusOptions): void {
     apply_graph_focus({
       target: 'source-browser',
       reason: 'source',
@@ -197,6 +212,13 @@ export function use_workspace_focus_actions(props: WorkspaceFocusActionsProps) {
       source_browser_id: source_id,
       active_workspace: 'chat',
       source_library_open: true,
+    });
+    open_source_worksheet_preview({
+      source_id,
+      version_id: options?.version_id ?? null,
+      worksheet_key: options?.worksheet_key ?? null,
+      anchor_row_index: options?.anchor_row_index ?? null,
+      highlighted_columns: options?.highlighted_columns ?? [],
     });
   }
 

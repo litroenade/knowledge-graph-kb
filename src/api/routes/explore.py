@@ -16,6 +16,8 @@ from src.api.schemas import (
     SourceDetailResponse,
     SourceItem,
     SourceParagraphsResponse,
+    WorksheetListResponse,
+    WorksheetPreviewResponse,
     SourceUpdateRequest,
     StatusResponse,
 )
@@ -236,3 +238,48 @@ def list_source_paragraphs(
     if paragraphs is None:
         raise api_error(status_code=404, code="source_not_found", message="Source not found.")
     return SourceParagraphsResponse(items=paragraphs)
+
+
+@source_router.get("/{source_id}/worksheets", response_model=WorksheetListResponse)
+def list_source_worksheets(
+    source_id: str,
+    version_id: str | None = Query(default=None),
+    source_service=Depends(get_source_service),
+) -> WorksheetListResponse:
+    worksheets = source_service.list_source_worksheets(source_id, version_id=version_id)
+    if worksheets is None:
+        raise api_error(status_code=404, code="source_not_found", message="Source or version not found.")
+    return WorksheetListResponse(items=worksheets)
+
+
+@source_router.get("/{source_id}/worksheets/{worksheet_key}/preview", response_model=WorksheetPreviewResponse)
+def get_source_worksheet_preview(
+    source_id: str,
+    worksheet_key: str,
+    version_id: str | None = Query(default=None),
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=50, ge=1, le=200),
+    anchor_row: int | None = Query(default=None, ge=1),
+    highlighted_columns: list[str] = Query(default_factory=list),
+    source_service=Depends(get_source_service),
+) -> WorksheetPreviewResponse:
+    try:
+        preview = source_service.get_source_worksheet_preview(
+            source_id,
+            worksheet_key,
+            version_id=version_id,
+            page=page,
+            page_size=page_size,
+            anchor_row_index=anchor_row,
+            highlighted_columns=highlighted_columns,
+        )
+    except KeyError as exc:
+        error_key = str(exc.args[0] if exc.args else "")
+        if error_key == "source_version_not_found":
+            raise api_error(status_code=404, code="source_version_not_found", message="Source version not found.") from exc
+        if error_key == "worksheet_not_found":
+            raise api_error(status_code=404, code="worksheet_not_found", message="Worksheet not found.") from exc
+        raise api_error(status_code=404, code="source_not_found", message="Source not found.") from exc
+    except ValueError as exc:
+        raise api_error(status_code=400, code="invalid_worksheet_preview", message=str(exc)) from exc
+    return WorksheetPreviewResponse(**preview)

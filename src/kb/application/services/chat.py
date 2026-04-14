@@ -16,7 +16,7 @@ logger = get_logger(__name__)
 class ConversationService:
     """Manage persisted QA sessions and messages."""
 
-    DEFAULT_SESSION_TITLE = "New Chat"
+    DEFAULT_SESSION_TITLE = "\u65b0\u5bf9\u8bdd"
 
     def __init__(
         self,
@@ -53,11 +53,11 @@ class ConversationService:
     ) -> dict[str, Any]:
         session = self.store.get_session(session_id)
         if session is None:
-            raise ValueError("Chat session not found.")
+            raise ValueError("\u672a\u627e\u5230\u95ee\u7b54\u4f1a\u8bdd\u3002")
 
         normalized_content = str(content or "").strip()
         if not normalized_content:
-            raise ValueError("Message content cannot be empty.")
+            raise ValueError("\u6d88\u606f\u5185\u5bb9\u4e0d\u80fd\u4e3a\u7a7a\u3002")
         normalized_scope = KBScope.from_payload(scope)
 
         existing_messages = self.store.list_messages(session_id)
@@ -180,7 +180,7 @@ class ConversationService:
             message = str(exc).strip()
             if message:
                 return message
-        return "The system could not process the current message."
+        return "\u7cfb\u7edf\u6682\u65f6\u65e0\u6cd5\u5904\u7406\u5f53\u524d\u6d88\u606f\u3002"
 
     def _history_context(self, messages: list[dict[str, Any]]) -> list[dict[str, str]]:
         if not messages:

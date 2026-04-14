@@ -39,7 +39,7 @@ function format_scope_version_label(version_number?: number | null, status?: str
 }
 
 function query_mode_supports_scope(mode: string): boolean {
-  return mode === 'answer' || mode === 'record';
+  return mode === 'answer' || mode === 'record' || mode === 'entity' || mode === 'relation' || mode === 'source';
 }
 
 function query_mode_empty_copy(mode: string): { title: string; description: string } {
@@ -173,6 +173,23 @@ export function QueryStudioPanel() {
     }
     await imports.upload_files(Array.from(files), 'summary');
     ui.set_active_workspace('import');
+  }
+
+  function handle_open_citation_source(citation: {
+    source_id: string;
+    version_id?: string | null;
+    worksheet_key?: string | null;
+    row_index?: number | null;
+    anchor_row_index?: number | null;
+    matched_fields?: string[];
+  }): void {
+    const has_worksheet_anchor = Boolean(citation.worksheet_key);
+    focus.focus_source(citation.source_id, {
+      version_id: citation.version_id ?? null,
+      worksheet_key: has_worksheet_anchor ? (citation.worksheet_key ?? null) : null,
+      anchor_row_index: has_worksheet_anchor ? (citation.anchor_row_index ?? citation.row_index ?? null) : null,
+      highlighted_columns: has_worksheet_anchor ? (citation.matched_fields ?? []) : [],
+    });
   }
 
   return (
@@ -374,7 +391,7 @@ export function QueryStudioPanel() {
                       <ChatSourcesSection
                         citations={message.citations}
                         excluded_source_ids={query.excluded_source_ids}
-                        on_focus_paragraph={focus.focus_paragraph}
+                        on_open_source_preview={handle_open_citation_source}
                         on_toggle_source_exclusion={query.toggle_source_exclusion}
                         on_view_in_graph={focus.focus_citation}
                       />
@@ -577,6 +594,8 @@ export function QueryStudioPanel() {
       <SourceLibraryDrawer
         delete_source={source.delete_source}
         is_deleting_source={source.is_deleting_source}
+        is_loading_source_worksheets={source.is_loading_source_worksheets}
+        is_loading_worksheet_preview={source.is_loading_worksheet_preview}
         is_updating_source={source.is_updating_source}
         on_close={() => ui.set_is_source_library_open(false)}
         on_focus_paragraph={focus.focus_paragraph}
@@ -585,14 +604,25 @@ export function QueryStudioPanel() {
         selected_source_browser_id={source.selected_source_browser_id}
         selected_source_version_id={source.selected_source_version_id}
         selected_source_ids={graph.selected_source_ids}
+        selected_worksheet_key={source.selected_worksheet_key}
         set_query_scope_version_id={query.set_scope_version_id}
         set_selected_source_browser_id={source.set_selected_source_browser_id}
         set_selected_source_version_id={source.set_selected_source_version_id}
         set_selected_source_ids={graph.set_selected_source_ids}
+        set_selected_worksheet_key={source.set_selected_worksheet_key}
+        set_worksheet_page={source.set_worksheet_page}
+        set_worksheet_preview_mode={source.set_worksheet_preview_mode}
         source_detail={source.source_detail}
         source_paragraphs={source.source_paragraphs}
+        source_worksheets={source.source_worksheets}
+        source_worksheets_error={source.source_worksheets_error}
         sources={source.sources}
         update_source={source.update_source}
+        worksheet_anchor_row={source.worksheet_anchor_row}
+        worksheet_page={source.worksheet_page}
+        worksheet_preview={source.worksheet_preview}
+        worksheet_preview_error={source.worksheet_preview_error}
+        worksheet_preview_mode={source.worksheet_preview_mode}
       />
 
       <ModelConfigModal on_close={() => ui.set_is_settings_open(false)} open={ui.is_settings_open} />

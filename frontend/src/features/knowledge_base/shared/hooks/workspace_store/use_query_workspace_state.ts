@@ -42,7 +42,7 @@ interface QueryWorkspaceStateProps {
   set_highlighted_edge_ids: Dispatch<SetStateAction<string[]>>;
 }
 
-const DEFAULT_SESSION_TITLE = 'New Chat';
+const DEFAULT_SESSION_TITLE = '\u65b0\u5bf9\u8bdd';
 
 function resolve_answer_execution(message: ChatMessageRecord | null): AnswerExecutionRecord {
   if (message?.execution) {
@@ -53,14 +53,14 @@ function resolve_answer_execution(message: ChatMessageRecord | null): AnswerExec
     retrieval_mode: 'none',
     model_invoked: false,
     matched_paragraph_count: 0,
-    message: 'Waiting for the next question.',
+    message: '\u7b49\u5f85\u4e0b\u4e00\u4e2a\u95ee\u9898\u3002',
   };
 }
 
 function build_answer_message(message: ChatMessageRecord): string {
   const execution = resolve_answer_execution(message);
   if (execution.model_invoked) {
-    return `Answer complete. ${execution.matched_paragraph_count} evidence chunks were used.`;
+    return `\u56de\u7b54\u5b8c\u6210\uff0c\u5df2\u4f7f\u7528 ${execution.matched_paragraph_count} \u6761\u8bc1\u636e\u3002`;
   }
   return execution.message;
 }
@@ -362,7 +362,7 @@ export function use_query_workspace_state(props: QueryWorkspaceStateProps) {
         set_highlighted_edge_ids([]);
       });
       set_has_hydrated_answer_sessions(true);
-      set_message(`Session created: ${session.title}`);
+      set_message(`\u5df2\u521b\u5efa\u4f1a\u8bdd\uff1a${session.title}`);
       set_error(null);
     } catch (session_error) {
       set_error((session_error as Error).message);
@@ -391,7 +391,7 @@ export function use_query_workspace_state(props: QueryWorkspaceStateProps) {
     set_last_query_text(normalized_query);
     set_active_workspace('chat');
     set_error(null);
-    set_message(`Running ${QUERY_MODE_LABELS[query_mode]}...`);
+    set_message(`\u6b63\u5728\u6267\u884c${QUERY_MODE_LABELS[query_mode]}...`);
 
     try {
       if (query_mode === 'answer') {
@@ -442,7 +442,7 @@ export function use_query_workspace_state(props: QueryWorkspaceStateProps) {
         });
         startTransition(() => {
           set_record_results(items);
-          set_message(`Record search complete. ${items.length} result(s).`);
+          set_message(`\u8bb0\u5f55\u68c0\u7d22\u5b8c\u6210\uff0c\u5171 ${items.length} \u6761\u7ed3\u679c\u3002`);
           set_error(null);
         });
         return;
@@ -453,10 +453,10 @@ export function use_query_workspace_state(props: QueryWorkspaceStateProps) {
       if (query_mode === 'entity') {
         set_relation_results([]);
         set_source_results([]);
-        const items = await search_entities({ query: normalized_query, limit: 20 });
+        const items = await search_entities({ query: normalized_query, scope, limit: 20 });
         startTransition(() => {
           set_entity_results(items);
-          set_message(`Entity search complete. ${items.length} result(s).`);
+          set_message(`\u5b9e\u4f53\u68c0\u7d22\u5b8c\u6210\uff0c\u5171 ${items.length} \u6761\u7ed3\u679c\u3002`);
           set_error(null);
         });
         return;
@@ -466,20 +466,20 @@ export function use_query_workspace_state(props: QueryWorkspaceStateProps) {
 
       if (query_mode === 'relation') {
         set_source_results([]);
-        const items = await search_relations({ query: normalized_query, limit: 20 });
+        const items = await search_relations({ query: normalized_query, scope, limit: 20 });
         startTransition(() => {
           set_relation_results(items);
-          set_message(`Relation search complete. ${items.length} result(s).`);
+          set_message(`\u5173\u7cfb\u68c0\u7d22\u5b8c\u6210\uff0c\u5171 ${items.length} \u6761\u7ed3\u679c\u3002`);
           set_error(null);
         });
         return;
       }
 
       set_relation_results([]);
-      const items = await search_sources({ query: normalized_query, limit: 20 });
+      const items = await search_sources({ query: normalized_query, scope, limit: 20 });
       startTransition(() => {
         set_source_results(items);
-        set_message(`Source search complete. ${items.length} result(s).`);
+        set_message(`\u6765\u6e90\u68c0\u7d22\u5b8c\u6210\uff0c\u5171 ${items.length} \u6761\u7ed3\u679c\u3002`);
         set_error(null);
       });
     } catch (query_error) {

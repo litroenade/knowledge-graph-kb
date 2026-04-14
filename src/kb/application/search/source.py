@@ -1,21 +1,39 @@
-"""面向来源检索模式的应用服务。"""
+"""Source search application service."""
 
-from src.kb.storage import SourceSearchStore
+from typing import Any
+
+from src.kb.storage import SourceSearchStore, SourceStore
 from src.utils.logger import get_logger
+
+from ..retrieval.types import KBScope
 
 logger = get_logger(__name__)
 
 
 class SourceSearchService:
-    """查询来源列表并整理成前端消费的结构。"""
+    """Prepare source search results for the frontend."""
 
-    def __init__(self, *, source_search_store: SourceSearchStore) -> None:
+    def __init__(self, *, source_search_store: SourceSearchStore, source_store: SourceStore) -> None:
         self.source_search_store = source_search_store
+        self.source_store = source_store
 
-    def search_sources(self, *, query: str, limit: int = 20) -> dict[str, list[dict[str, object]]]:
-        """按来源名称、类型或摘要执行检索。"""
+    def search_sources(
+        self,
+        *,
+        query: str,
+        scope: dict[str, Any],
+        limit: int = 20,
+    ) -> dict[str, list[dict[str, object]]]:
+        normalized_scope = KBScope.from_payload(scope)
+        scope_pairs = self.source_store.resolve_scope_pairs(normalized_scope)
+        if not scope_pairs:
+            return {"items": []}
 
-        rows = self.source_search_store.search_sources(query=query, limit=limit)
+        rows = self.source_search_store.search_sources(
+            query=query,
+            limit=limit,
+            source_version_pairs=scope_pairs,
+        )
         items = [
             {
                 "id": str(row["id"]),
@@ -27,5 +45,5 @@ class SourceSearchService:
             }
             for row in rows
         ]
-        logger.info("来源检索完成：query_length=%s result_count=%s", len(str(query or "").strip()), len(items))
+        logger.info("Source search completed: query_length=%s result_count=%s", len(str(query or "").strip()), len(items))
         return {"items": items}

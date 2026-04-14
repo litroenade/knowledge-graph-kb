@@ -59,6 +59,7 @@ export function use_knowledge_base_workspace_slices() {
     set_highlighted_edge_ids: graph.set_highlighted_edge_ids,
     set_selected_source_browser_id: source.set_selected_source_browser_id,
     set_selected_source_ids: graph.set_selected_source_ids,
+    open_source_worksheet_preview: source.open_source_worksheet_preview,
     set_graph_data_view: graph.set_graph_data_view,
     open_evidence_graph: graph.open_evidence_graph,
     set_density: graph.set_density,

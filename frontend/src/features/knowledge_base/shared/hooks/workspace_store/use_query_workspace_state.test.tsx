@@ -1,5 +1,5 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type {
   ChatMessageRecord,
@@ -74,7 +74,7 @@ function create_message(overrides: Partial<ChatMessageRecord>): ChatMessageRecor
     id: overrides.id ?? 'message-1',
     session_id: overrides.session_id ?? 'session-a',
     role: overrides.role ?? 'assistant',
-    content: overrides.content ?? '默认消息',
+    content: overrides.content ?? 'default message',
     turn_index: overrides.turn_index ?? 1,
     citations: overrides.citations ?? [],
     scope: overrides.scope ?? DEFAULT_SCOPE,
@@ -93,16 +93,33 @@ function create_detail(session: ChatSessionRecord, messages: ChatMessageRecord[]
   return { session, messages };
 }
 
-function QueryWorkspaceHarness(props: Parameters<typeof use_query_workspace_state>[0]) {
+function build_props(
+  overrides: Partial<Parameters<typeof use_query_workspace_state>[0]> = {},
+): Parameters<typeof use_query_workspace_state>[0] {
+  return {
+    active_workspace: 'import',
+    query_mode: 'answer',
+    available_source_ids: ['source-1', 'source-2'],
+    set_active_workspace: vi.fn(),
+    set_last_query_text: vi.fn(),
+    set_message: vi.fn(),
+    set_error: vi.fn(),
+    set_highlighted_node_ids: vi.fn(),
+    set_highlighted_edge_ids: vi.fn(),
+    ...overrides,
+  };
+}
+
+function AnswerWorkspaceHarness(props: Parameters<typeof use_query_workspace_state>[0]) {
   const state = use_query_workspace_state(props);
 
   return (
     <div>
       <button onClick={() => void state.execute_query('Alpha 项目是谁负责的？')} type='button'>
-        执行问答
+        run answer
       </button>
       <button onClick={() => void state.select_answer_session('session-b')} type='button'>
-        切到 B
+        switch B
       </button>
       <div data-testid='active-session'>{state.active_answer_session_id ?? ''}</div>
       <div data-testid='latest-message'>{state.answer_messages[state.answer_messages.length - 1]?.content ?? ''}</div>
@@ -110,16 +127,34 @@ function QueryWorkspaceHarness(props: Parameters<typeof use_query_workspace_stat
   );
 }
 
+function QueryExecutionHarness(props: Parameters<typeof use_query_workspace_state>[0]) {
+  const state = use_query_workspace_state(props);
+
+  return (
+    <button onClick={() => void state.execute_query('Beta')} type='button'>
+      run search
+    </button>
+  );
+}
+
 describe('use_query_workspace_state', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    search_records_mock.mockResolvedValue([]);
+    search_entities_mock.mockResolvedValue([]);
+    search_relations_mock.mockResolvedValue([]);
+    search_sources_mock.mockResolvedValue([]);
+  });
+
   it('keeps the manually selected session when an older answer request resolves later', async () => {
-    const session_a = create_session('session-a', '会话 A');
-    const session_b = create_session('session-b', '会话 B');
+    const session_a = create_session('session-a', 'Session A');
+    const session_b = create_session('session-b', 'Session B');
     const detail_a = create_detail(session_a, []);
     const detail_b = create_detail(session_b, [
       create_message({
         id: 'message-b',
         session_id: session_b.id,
-        content: '会话 B 的最新消息',
+        content: 'latest message from session B',
         highlighted_node_ids: ['entity:b'],
       }),
     ]);
@@ -134,26 +169,12 @@ describe('use_query_workspace_state', () => {
       return detail_a;
     });
     post_chat_message_mock.mockReturnValue(answer_deferred.promise);
-    search_entities_mock.mockResolvedValue([]);
-    search_records_mock.mockResolvedValue([]);
-    search_relations_mock.mockResolvedValue([]);
-    search_sources_mock.mockResolvedValue([]);
 
-    const props = {
-      active_workspace: 'import' as const,
-      query_mode: 'answer' as const,
-      available_source_ids: ['source-1', 'source-2'],
-      set_active_workspace: vi.fn(),
-      set_last_query_text: vi.fn(),
-      set_message: vi.fn(),
-      set_error: vi.fn(),
-      set_highlighted_node_ids: vi.fn(),
-      set_highlighted_edge_ids: vi.fn(),
-    };
+    const props = build_props();
 
-    render(<QueryWorkspaceHarness {...props} />);
+    render(<AnswerWorkspaceHarness {...props} />);
 
-    fireEvent.click(screen.getByRole('button', { name: '执行问答' }));
+    fireEvent.click(screen.getByRole('button', { name: 'run answer' }));
 
     await waitFor(() => {
       expect(post_chat_message_mock).toHaveBeenCalledTimes(1);
@@ -162,13 +183,13 @@ describe('use_query_workspace_state', () => {
       expect(screen.getByTestId('active-session')).toHaveTextContent('session-a');
     });
 
-    fireEvent.click(screen.getByRole('button', { name: '切到 B' }));
+    fireEvent.click(screen.getByRole('button', { name: 'switch B' }));
 
     await waitFor(() => {
       expect(screen.getByTestId('active-session')).toHaveTextContent('session-b');
     });
     await waitFor(() => {
-      expect(screen.getByTestId('latest-message')).toHaveTextContent('会话 B 的最新消息');
+      expect(screen.getByTestId('latest-message')).toHaveTextContent('latest message from session B');
     });
     expect(props.set_highlighted_node_ids).toHaveBeenLastCalledWith(['entity:b']);
 
@@ -178,7 +199,7 @@ describe('use_query_workspace_state', () => {
           create_message({
             id: 'message-a',
             session_id: session_a.id,
-            content: '会话 A 的迟到回答',
+            content: 'late answer from session A',
             highlighted_node_ids: ['entity:a'],
           }),
         ]),
@@ -189,7 +210,46 @@ describe('use_query_workspace_state', () => {
     await waitFor(() => {
       expect(screen.getByTestId('active-session')).toHaveTextContent('session-b');
     });
-    expect(screen.getByTestId('latest-message')).toHaveTextContent('会话 B 的最新消息');
+    expect(screen.getByTestId('latest-message')).toHaveTextContent('latest message from session B');
     expect(props.set_highlighted_node_ids).toHaveBeenLastCalledWith(['entity:b']);
+  });
+
+  it.each([
+    {
+      mode: 'entity' as const,
+      search_mock: search_entities_mock,
+      response: [{ id: 'entity-1', display_name: 'Beta', description: null, appearance_count: 1, metadata: {}, paragraph_ids: ['paragraph-1'] }],
+      expected_message: '\u5b9e\u4f53\u68c0\u7d22\u5b8c\u6210\uff0c\u5171 1 \u6761\u7ed3\u679c\u3002',
+    },
+    {
+      mode: 'relation' as const,
+      search_mock: search_relations_mock,
+      response: [{ id: 'relation-1', subject_id: 'entity-1', subject_name: 'Alpha', predicate: '关联', object_id: 'entity-2', object_name: 'Beta', confidence: 0.9, source_paragraph_id: 'paragraph-1', metadata: {} }],
+      expected_message: '\u5173\u7cfb\u68c0\u7d22\u5b8c\u6210\uff0c\u5171 1 \u6761\u7ed3\u679c\u3002',
+    },
+    {
+      mode: 'source' as const,
+      search_mock: search_sources_mock,
+      response: [{ id: 'source-1', name: '来源一.txt', source_kind: 'text', summary: null, metadata: {}, paragraph_count: 1 }],
+      expected_message: '\u6765\u6e90\u68c0\u7d22\u5b8c\u6210\uff0c\u5171 1 \u6761\u7ed3\u679c\u3002',
+    },
+  ])('passes scope through $mode search requests and publishes a localized status', async ({ mode, search_mock, response, expected_message }) => {
+    search_mock.mockResolvedValue(response);
+    const props = build_props({ query_mode: mode });
+
+    render(<QueryExecutionHarness {...props} />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'run search' }));
+
+    await waitFor(() => {
+      expect(search_mock).toHaveBeenCalledWith({
+        query: 'Beta',
+        scope: DEFAULT_SCOPE,
+        limit: 20,
+      });
+    });
+    await waitFor(() => {
+      expect(props.set_message).toHaveBeenLastCalledWith(expected_message);
+    });
   });
 });

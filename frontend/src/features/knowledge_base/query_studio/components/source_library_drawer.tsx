@@ -22,7 +22,10 @@ import type {
   SourceDetailRecord,
   SourceRecord,
   SourceVersionRecord,
+  WorksheetPreviewRecord,
+  WorksheetSummaryRecord,
 } from '../../shared/types/knowledge_base_types';
+import { WorksheetPreviewTable } from './worksheet_preview_table';
 
 function source_summary(source: SourceRecord): string {
   return source.summary || get_input_mode_label(source.source_kind) || '暂无摘要';
@@ -34,6 +37,21 @@ function is_source_in_scope(source_id: string, selected_source_ids: string[]): b
 
 function format_version_label(version: SourceVersionRecord): string {
   return `v${version.version_number} · ${version.status.toUpperCase()}`;
+}
+
+function worksheet_range_label(preview: WorksheetPreviewRecord | null): string | null {
+  if (!preview || !preview.row_range_start || !preview.row_range_end) {
+    return null;
+  }
+  return `当前窗口 ${preview.row_range_start}-${preview.row_range_end}`;
+}
+
+function worksheet_page_label(preview: WorksheetPreviewRecord | null): string | null {
+  if (!preview || preview.total_rows <= 0) {
+    return null;
+  }
+  const page_count = Math.max(1, Math.ceil(preview.total_rows / Math.max(1, preview.page_size)));
+  return `第 ${preview.page} / ${page_count} 页`;
 }
 
 interface SourceLibraryDrawerProps {
@@ -49,6 +67,19 @@ interface SourceLibraryDrawerProps {
   set_query_scope_version_id: (version_id: string | null) => void;
   source_detail: SourceDetailRecord | null;
   source_paragraphs: ParagraphRecord[];
+  source_worksheets: WorksheetSummaryRecord[];
+  worksheet_preview: WorksheetPreviewRecord | null;
+  selected_worksheet_key: string | null;
+  set_selected_worksheet_key: Dispatch<SetStateAction<string | null>>;
+  worksheet_page: number;
+  set_worksheet_page: Dispatch<SetStateAction<number>>;
+  worksheet_anchor_row: number | null;
+  worksheet_preview_mode: 'page' | 'context';
+  set_worksheet_preview_mode: Dispatch<SetStateAction<'page' | 'context'>>;
+  is_loading_source_worksheets: boolean;
+  is_loading_worksheet_preview: boolean;
+  source_worksheets_error: string | null;
+  worksheet_preview_error: string | null;
   is_updating_source: boolean;
   is_deleting_source: boolean;
   update_source: (
@@ -74,6 +105,19 @@ export function SourceLibraryDrawer(props: SourceLibraryDrawerProps) {
     set_query_scope_version_id,
     source_detail,
     source_paragraphs,
+    source_worksheets,
+    worksheet_preview,
+    selected_worksheet_key,
+    set_selected_worksheet_key,
+    worksheet_page,
+    set_worksheet_page,
+    worksheet_anchor_row,
+    worksheet_preview_mode,
+    set_worksheet_preview_mode,
+    is_loading_source_worksheets,
+    is_loading_worksheet_preview,
+    source_worksheets_error,
+    worksheet_preview_error,
     is_updating_source,
     is_deleting_source,
     update_source,
@@ -126,6 +170,10 @@ export function SourceLibraryDrawer(props: SourceLibraryDrawerProps) {
     source_detail?.source ??
     sources.find((source) => source.id === selected_source_browser_id) ??
     null;
+  const active_worksheet =
+    source_worksheets.find((item) => item.worksheet_key === selected_worksheet_key) ?? null;
+  const worksheet_page_copy = worksheet_page_label(worksheet_preview);
+  const worksheet_range_copy = worksheet_range_label(worksheet_preview);
 
   useEffect(() => {
     set_name_draft(active_source?.name ?? '');
@@ -146,9 +194,9 @@ export function SourceLibraryDrawer(props: SourceLibraryDrawerProps) {
       >
         <div className='kb-side-drawer-header'>
           <div>
-            <span className='kb-context-label'>来源</span>
+            <span className='kb-context-label'>来源浏览</span>
             <h3>来源库</h3>
-            <p>在这里切换来源范围、查看单个来源详情，并完成重命名与删除。</p>
+            <p>在这里切换来源范围、浏览工作表预览，并保留段落级证据入口。</p>
           </div>
           <button className='kb-secondary-button' onClick={on_close} type='button'>
             关闭
@@ -246,7 +294,7 @@ export function SourceLibraryDrawer(props: SourceLibraryDrawerProps) {
               <p>
                 {active_source
                   ? source_summary(active_source)
-                  : '选中来源后，这里会显示摘要、统计和段落内容。'}
+                  : '选中来源后，这里会显示来源摘要、快照和工作表预览。'}
               </p>
               {source_detail ? (
                 <div className='kb-meta-strip'>
@@ -315,7 +363,7 @@ export function SourceLibraryDrawer(props: SourceLibraryDrawerProps) {
                       }
                       type='button'
                     >
-                      {is_updating_source ? '保存中…' : '保存来源'}
+                      {is_updating_source ? '保存中...' : '保存来源'}
                     </button>
                     <button
                       className='kb-secondary-button is-danger'
@@ -323,11 +371,117 @@ export function SourceLibraryDrawer(props: SourceLibraryDrawerProps) {
                       onClick={() => void delete_source(active_source.id)}
                       type='button'
                     >
-                      {is_deleting_source ? '删除中…' : '删除来源'}
+                      {is_deleting_source ? '删除中...' : '删除来源'}
                     </button>
                   </div>
                 </>
               ) : null}
+            </div>
+
+            <div className='kb-detail-card'>
+              <span className='kb-context-label'>工作表预览</span>
+              <h3>{active_worksheet?.worksheet_name ?? '选择工作表'}</h3>
+              <p>
+                {active_worksheet
+                  ? `当前工作表共 ${active_worksheet.row_count} 行。`
+                  : '工作表预览只按单个 worksheet 返回，不会一次展开整本工作簿。'}
+              </p>
+
+              {active_source ? (
+                <>
+                  {source_worksheets.length ? (
+                    <>
+                      <label className='kb-form-field'>
+                        <span>工作表</span>
+                        <select
+                          onChange={(event) => set_selected_worksheet_key(event.target.value || null)}
+                          value={selected_worksheet_key ?? ''}
+                        >
+                          {source_worksheets.map((worksheet) => (
+                            <option key={worksheet.worksheet_key} value={worksheet.worksheet_key}>
+                              {`${worksheet.worksheet_name} · ${worksheet.row_count} 行`}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+
+                      <div className='kb-meta-strip'>
+                        {worksheet_page_copy ? <span className='kb-meta-pill'>{worksheet_page_copy}</span> : null}
+                        {worksheet_range_copy ? <span className='kb-meta-pill'>{worksheet_range_copy}</span> : null}
+                        {worksheet_anchor_row ? (
+                          <span className='kb-meta-pill'>{`命中行 ${worksheet_anchor_row}`}</span>
+                        ) : null}
+                      </div>
+
+                      <div className='kb-button-row'>
+                        {worksheet_anchor_row ? (
+                          <button
+                            className='kb-secondary-button'
+                            onClick={() =>
+                              set_worksheet_preview_mode((current) =>
+                                current === 'context' ? 'page' : 'context',
+                              )
+                            }
+                            type='button'
+                          >
+                            {worksheet_preview_mode === 'context' ? '查看整页' : '仅看命中上下文'}
+                          </button>
+                        ) : null}
+                        {worksheet_anchor_row ? (
+                          <button
+                            className='kb-secondary-button'
+                            onClick={() => {
+                              set_worksheet_page(1);
+                              set_worksheet_preview_mode('context');
+                            }}
+                            type='button'
+                          >
+                            跳到命中行
+                          </button>
+                        ) : null}
+                      </div>
+
+                      {is_loading_source_worksheets || is_loading_worksheet_preview ? (
+                        <div className='kb-empty-card'>正在加载工作表预览...</div>
+                      ) : source_worksheets_error ? (
+                        <div className='kb-empty-card'>{source_worksheets_error}</div>
+                      ) : worksheet_preview_error ? (
+                        <div className='kb-empty-card'>{worksheet_preview_error}</div>
+                      ) : worksheet_preview ? (
+                        <>
+                          <WorksheetPreviewTable preview={worksheet_preview} />
+                          {worksheet_preview_mode === 'page' && worksheet_preview.total_rows > 0 ? (
+                            <div className='kb-button-row'>
+                              <button
+                                className='kb-secondary-button'
+                                disabled={!worksheet_preview.has_prev}
+                                onClick={() => set_worksheet_page((current) => Math.max(1, current - 1))}
+                                type='button'
+                              >
+                                上一页
+                              </button>
+                              <button
+                                className='kb-secondary-button'
+                                disabled={!worksheet_preview.has_next}
+                                onClick={() => set_worksheet_page((current) => current + 1)}
+                                type='button'
+                              >
+                                下一页
+                              </button>
+                            </div>
+                          ) : null}
+                        </>
+                      ) : (
+                        <div className='kb-empty-card'>选择工作表后，预览会显示在这里。</div>
+                      )}
+                    </>
+                  ) : (
+                    <div className='kb-empty-card'>当前来源没有可用工作表。</div>
+                  )}
+                </>
+              ) : (
+                <div className='kb-empty-card'>先选择来源，再查看工作表预览。</div>
+              )}
             </div>
 
             <label className='kb-form-field'>

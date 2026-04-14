@@ -118,9 +118,9 @@ def build_knowledge_base_container(settings: Settings) -> KnowledgeBaseContainer
         structured_retriever=structured_retriever,
         vector_retriever=vector_retriever,
     )
-    entity_search_service = EntitySearchService(entity_search_store=entity_search_store)
-    relation_search_service = RelationSearchService(relation_search_store=relation_search_store)
-    source_search_service = SourceSearchService(source_search_store=source_search_store)
+    entity_search_service = EntitySearchService(entity_search_store=entity_search_store, source_store=source_store)
+    relation_search_service = RelationSearchService(relation_search_store=relation_search_store, source_store=source_store)
+    source_search_service = SourceSearchService(source_search_store=source_search_store, source_store=source_store)
     conversation_service = ConversationService(
         settings=settings,
         store=conversation_store,
@@ -131,7 +131,7 @@ def build_knowledge_base_container(settings: Settings) -> KnowledgeBaseContainer
         source_store=source_store,
         vector_index=vector_index,
     )
-    source_service = SourceService(source_store=source_store)
+    source_service = SourceService(source_store=source_store, record_store=record_store)
     maintenance_service = MaintenanceService(
         settings=settings,
         gateway=gateway,

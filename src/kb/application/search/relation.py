@@ -1,21 +1,39 @@
-"""面向关系检索模式的应用服务。"""
+"""Relation search application service."""
 
-from src.kb.storage import RelationSearchStore
+from typing import Any
+
+from src.kb.storage import RelationSearchStore, SourceStore
 from src.utils.logger import get_logger
+
+from ..retrieval.types import KBScope
 
 logger = get_logger(__name__)
 
 
 class RelationSearchService:
-    """查询实体关系并整理成前端消费的结构。"""
+    """Prepare relation search results for the frontend."""
 
-    def __init__(self, *, relation_search_store: RelationSearchStore) -> None:
+    def __init__(self, *, relation_search_store: RelationSearchStore, source_store: SourceStore) -> None:
         self.relation_search_store = relation_search_store
+        self.source_store = source_store
 
-    def search_relations(self, *, query: str, limit: int = 20) -> dict[str, list[dict[str, object]]]:
-        """按关键词执行关系检索。"""
+    def search_relations(
+        self,
+        *,
+        query: str,
+        scope: dict[str, Any],
+        limit: int = 20,
+    ) -> dict[str, list[dict[str, object]]]:
+        normalized_scope = KBScope.from_payload(scope)
+        scope_pairs = self.source_store.resolve_scope_pairs(normalized_scope)
+        if not scope_pairs:
+            return {"items": []}
 
-        rows = self.relation_search_store.search_relations(query=query, limit=limit)
+        rows = self.relation_search_store.search_relations(
+            query=query,
+            limit=limit,
+            source_version_pairs=scope_pairs,
+        )
         items = [
             {
                 "id": str(row["id"]),
@@ -30,5 +48,5 @@ class RelationSearchService:
             }
             for row in rows
         ]
-        logger.info("关系检索完成：query_length=%s result_count=%s", len(str(query or "").strip()), len(items))
+        logger.info("Relation search completed: query_length=%s result_count=%s", len(str(query or "").strip()), len(items))
         return {"items": items}

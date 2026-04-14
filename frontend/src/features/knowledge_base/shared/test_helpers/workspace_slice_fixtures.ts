@@ -11,6 +11,8 @@ import type {
   SourceDetailRecord,
   SourceRecord,
   SourceVersionRecord,
+  WorksheetPreviewRecord,
+  WorksheetSummaryRecord,
 } from '../types/knowledge_base_types';
 
 const FIXTURE_TIME = '2026-04-01T00:00:00Z';
@@ -134,6 +136,9 @@ export function create_answer_citation_record(
     matched_fields: overrides.matched_fields ?? [],
     source_kind: overrides.source_kind ?? 'text',
     worksheet_name: overrides.worksheet_name ?? null,
+    worksheet_key: overrides.worksheet_key ?? null,
+    row_index: overrides.row_index ?? null,
+    anchor_row_index: overrides.anchor_row_index ?? overrides.row_index ?? null,
     page_number: overrides.page_number ?? 1,
     paragraph_position: overrides.paragraph_position ?? 0,
     winning_lane: overrides.winning_lane ?? 'fusion',
@@ -144,6 +149,63 @@ export function create_answer_citation_record(
     render_kind: overrides.render_kind ?? 'text',
     rendered_html: overrides.rendered_html ?? null,
     render_metadata: overrides.render_metadata ?? {},
+  };
+}
+
+export function create_worksheet_summary_record(
+  overrides: Partial<WorksheetSummaryRecord> = {},
+): WorksheetSummaryRecord {
+  return {
+    worksheet_key: overrides.worksheet_key ?? 'sheet-1',
+    worksheet_name: overrides.worksheet_name ?? '工作表一',
+    row_count: overrides.row_count ?? 12,
+    headers: overrides.headers ?? ['名称', '值'],
+    column_keys: overrides.column_keys ?? ['ming_cheng', 'zhi'],
+  };
+}
+
+export function create_worksheet_preview_record(
+  overrides: Partial<WorksheetPreviewRecord> = {},
+): WorksheetPreviewRecord {
+  const worksheet = create_worksheet_summary_record({
+    worksheet_key: overrides.worksheet_key ?? 'sheet-1',
+    worksheet_name: overrides.worksheet_name ?? '工作表一',
+    headers: overrides.headers ?? ['名称', '值'],
+    column_keys: overrides.column_keys ?? ['ming_cheng', 'zhi'],
+  });
+  return {
+    source_id: overrides.source_id ?? 'source-1',
+    version_id: overrides.version_id ?? 'version-1',
+    worksheet_key: overrides.worksheet_key ?? worksheet.worksheet_key,
+    worksheet_name: overrides.worksheet_name ?? worksheet.worksheet_name,
+    headers: overrides.headers ?? worksheet.headers,
+    column_keys: overrides.column_keys ?? worksheet.column_keys,
+    items:
+      overrides.items ??
+      [
+        {
+          paragraph_id: 'paragraph-1',
+          row_index: 3,
+          record_key: 'row-3',
+          cells: {
+            [worksheet.column_keys[0] ?? 'ming_cheng']: '孙子兵法',
+            [worksheet.column_keys[1] ?? 'zhi']: '支形',
+          },
+        },
+      ],
+    render_kind: 'worksheet_preview',
+    rendered_html: overrides.rendered_html ?? '<div>worksheet preview</div>',
+    render_metadata: overrides.render_metadata ?? {},
+    page: overrides.page ?? 1,
+    page_size: overrides.page_size ?? 40,
+    total_rows: overrides.total_rows ?? 12,
+    has_prev: overrides.has_prev ?? false,
+    has_next: overrides.has_next ?? false,
+    row_range_start: overrides.row_range_start ?? 1,
+    row_range_end: overrides.row_range_end ?? 12,
+    anchor_row_index: overrides.anchor_row_index ?? 3,
+    highlighted_row_indexes: overrides.highlighted_row_indexes ?? [3],
+    highlighted_columns: overrides.highlighted_columns ?? [worksheet.column_keys[1] ?? 'zhi'],
   };
 }
 
@@ -259,6 +321,32 @@ export function create_source_slice_fixture(
           version_id: detail?.selected_version?.id ?? detail?.versions[0]?.id ?? 'version-1',
         }),
       ],
+    source_worksheets:
+      overrides.source_worksheets ??
+      [create_worksheet_summary_record()],
+    worksheet_preview:
+      overrides.worksheet_preview ??
+      create_worksheet_preview_record({
+        source_id: source.id,
+        version_id: detail?.selected_version?.id ?? detail?.versions[0]?.id ?? 'version-1',
+      }),
+    selected_worksheet_key: overrides.selected_worksheet_key ?? 'sheet-1',
+    set_selected_worksheet_key: overrides.set_selected_worksheet_key ?? vi.fn(),
+    worksheet_page: overrides.worksheet_page ?? 1,
+    set_worksheet_page: overrides.set_worksheet_page ?? vi.fn(),
+    worksheet_page_size: overrides.worksheet_page_size ?? 40,
+    set_worksheet_page_size: overrides.set_worksheet_page_size ?? vi.fn(),
+    worksheet_anchor_row: overrides.worksheet_anchor_row ?? 3,
+    set_worksheet_anchor_row: overrides.set_worksheet_anchor_row ?? vi.fn(),
+    worksheet_highlighted_columns: overrides.worksheet_highlighted_columns ?? ['zhi'],
+    set_worksheet_highlighted_columns: overrides.set_worksheet_highlighted_columns ?? vi.fn(),
+    worksheet_preview_mode: overrides.worksheet_preview_mode ?? 'page',
+    set_worksheet_preview_mode: overrides.set_worksheet_preview_mode ?? vi.fn(),
+    open_source_worksheet_preview: overrides.open_source_worksheet_preview ?? vi.fn(),
+    is_loading_source_worksheets: overrides.is_loading_source_worksheets ?? false,
+    is_loading_worksheet_preview: overrides.is_loading_worksheet_preview ?? false,
+    source_worksheets_error: overrides.source_worksheets_error ?? null,
+    worksheet_preview_error: overrides.worksheet_preview_error ?? null,
     is_updating_source: overrides.is_updating_source ?? false,
     is_deleting_source: overrides.is_deleting_source ?? false,
   };

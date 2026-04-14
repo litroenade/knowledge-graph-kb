@@ -40,7 +40,7 @@ describe('ChatSourcesSection', () => {
       excluded_source_ids: [],
       on_toggle_source_exclusion: vi.fn(),
       on_view_in_graph: vi.fn(),
-      on_focus_paragraph: vi.fn(),
+      on_open_source_preview: vi.fn(),
     };
 
     const { rerender } = render(<ChatSourcesSection citations={citations} {...callbacks} />);

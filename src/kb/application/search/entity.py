@@ -1,23 +1,39 @@
-"""面向实体检索模式的应用服务。"""
+"""Entity search application service."""
 
 from typing import Any
 
-from src.kb.storage import EntitySearchStore
+from src.kb.storage import EntitySearchStore, SourceStore
 from src.utils.logger import get_logger
+
+from ..retrieval.types import KBScope
 
 logger = get_logger(__name__)
 
 
 class EntitySearchService:
-    """查询实体列表并整理成前端消费的结构。"""
+    """Prepare entity search results for the frontend."""
 
-    def __init__(self, *, entity_search_store: EntitySearchStore) -> None:
+    def __init__(self, *, entity_search_store: EntitySearchStore, source_store: SourceStore) -> None:
         self.entity_search_store = entity_search_store
+        self.source_store = source_store
 
-    def search_entities(self, *, query: str, limit: int = 20) -> dict[str, list[dict[str, Any]]]:
-        """按名称或描述执行实体检索。"""
+    def search_entities(
+        self,
+        *,
+        query: str,
+        scope: dict[str, Any],
+        limit: int = 20,
+    ) -> dict[str, list[dict[str, Any]]]:
+        normalized_scope = KBScope.from_payload(scope)
+        scope_pairs = self.source_store.resolve_scope_pairs(normalized_scope)
+        if not scope_pairs:
+            return {"items": []}
 
-        rows = self.entity_search_store.search_entities(query=query, limit=limit)
+        rows = self.entity_search_store.search_entities(
+            query=query,
+            limit=limit,
+            source_version_pairs=scope_pairs,
+        )
         items: list[dict[str, Any]] = []
         for row in rows:
             paragraph_ids = [value for value in str(row.get("paragraph_ids") or "").split(",") if value]
@@ -31,5 +47,5 @@ class EntitySearchService:
                     "paragraph_ids": paragraph_ids,
                 }
             )
-        logger.info("实体检索完成：query_length=%s result_count=%s", len(str(query or "").strip()), len(items))
+        logger.info("Entity search completed: query_length=%s result_count=%s", len(str(query or "").strip()), len(items))
         return {"items": items}

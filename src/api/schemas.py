@@ -76,7 +76,7 @@ class ParagraphItem(BaseModel):
     token_count: int
     vector_state: str
     metadata: dict[str, Any] = Field(default_factory=dict)
-    render_kind: Literal["text", "row_record", "sheet_summary"] = "text"
+    render_kind: Literal["text", "row_record", "sheet_summary", "worksheet_preview"] = "text"
     rendered_html: str | None = None
     render_metadata: dict[str, Any] = Field(default_factory=dict)
     created_at: str
@@ -123,6 +123,48 @@ class SourceDetailResponse(BaseModel):
 
 class SourceParagraphsResponse(BaseModel):
     items: list[ParagraphItem] = Field(default_factory=list)
+
+
+class WorksheetItem(BaseModel):
+    worksheet_key: str
+    worksheet_name: str
+    row_count: int
+    headers: list[str] = Field(default_factory=list)
+    column_keys: list[str] = Field(default_factory=list)
+
+
+class WorksheetListResponse(BaseModel):
+    items: list[WorksheetItem] = Field(default_factory=list)
+
+
+class WorksheetPreviewPageItem(BaseModel):
+    paragraph_id: str | None = None
+    row_index: int
+    record_key: str | None = None
+    cells: dict[str, str] = Field(default_factory=dict)
+
+
+class WorksheetPreviewResponse(BaseModel):
+    source_id: str
+    version_id: str | None = None
+    worksheet_key: str
+    worksheet_name: str
+    headers: list[str] = Field(default_factory=list)
+    column_keys: list[str] = Field(default_factory=list)
+    items: list[WorksheetPreviewPageItem] = Field(default_factory=list)
+    render_kind: Literal["worksheet_preview"] = "worksheet_preview"
+    rendered_html: str | None = None
+    render_metadata: dict[str, Any] = Field(default_factory=dict)
+    page: int = 1
+    page_size: int = 50
+    total_rows: int = 0
+    has_prev: bool = False
+    has_next: bool = False
+    row_range_start: int = 0
+    row_range_end: int = 0
+    anchor_row_index: int | None = None
+    highlighted_row_indexes: list[int] = Field(default_factory=list)
+    highlighted_columns: list[str] = Field(default_factory=list)
 
 
 class GraphNodeItem(BaseModel):
@@ -246,6 +288,9 @@ class CitationItem(BaseModel):
     matched_fields: list[str] = Field(default_factory=list)
     source_kind: str | None = None
     worksheet_name: str | None = None
+    worksheet_key: str | None = None
+    row_index: int | None = None
+    anchor_row_index: int | None = None
     page_number: int | None = None
     paragraph_position: int | None = None
     winning_lane: str | None = None
@@ -253,7 +298,7 @@ class CitationItem(BaseModel):
     end_offset: int | None = None
     anchor_node_ids: list[str] = Field(default_factory=list)
     preferred_anchor_node_id: str | None = None
-    render_kind: Literal["text", "row_record", "sheet_summary"] = "text"
+    render_kind: Literal["text", "row_record", "sheet_summary", "worksheet_preview"] = "text"
     rendered_html: str | None = None
     render_metadata: dict[str, Any] = Field(default_factory=dict)
 
@@ -360,6 +405,7 @@ class RecordSearchResponse(BaseModel):
 
 class EntitySearchRequest(BaseModel):
     query: str
+    scope: KBScopeItem = Field(default_factory=lambda: KBScopeItem(mode="all"))
     limit: int = 20
 
 
@@ -378,6 +424,7 @@ class EntitySearchResponse(BaseModel):
 
 class RelationSearchRequest(BaseModel):
     query: str
+    scope: KBScopeItem = Field(default_factory=lambda: KBScopeItem(mode="all"))
     limit: int = 20
 
 
@@ -399,6 +446,7 @@ class RelationSearchResponse(BaseModel):
 
 class SourceSearchRequest(BaseModel):
     query: str
+    scope: KBScopeItem = Field(default_factory=lambda: KBScopeItem(mode="all"))
     limit: int = 20
 
 

@@ -2,11 +2,21 @@
  * Source-related API helpers.
  */
 
-import type { ParagraphRecord, SourceDetailRecord, SourceRecord } from '../types/knowledge_base_types';
+import type {
+  ParagraphRecord,
+  SourceDetailRecord,
+  SourceRecord,
+  WorksheetPreviewRecord,
+  WorksheetSummaryRecord,
+} from '../types/knowledge_base_types';
 import { build_query_string, request_json } from './http_client';
 
 interface SourceParagraphsResponse {
   items: ParagraphRecord[];
+}
+
+interface SourceWorksheetsResponse {
+  items: WorksheetSummaryRecord[];
 }
 
 export function list_sources(keyword?: string): Promise<SourceRecord[]> {
@@ -51,4 +61,36 @@ export async function list_source_paragraphs(
     `/api/kb/sources/${source_id}/paragraphs${build_query_string({ version_id: version_id ?? undefined })}`,
   );
   return response.items;
+}
+
+export async function list_source_worksheets(
+  source_id: string,
+  version_id?: string | null,
+): Promise<WorksheetSummaryRecord[]> {
+  const response = await request_json<SourceWorksheetsResponse>(
+    `/api/kb/sources/${source_id}/worksheets${build_query_string({ version_id: version_id ?? undefined })}`,
+  );
+  return response.items;
+}
+
+export function get_source_worksheet_preview(
+  source_id: string,
+  worksheet_key: string,
+  options: {
+    version_id?: string | null;
+    page?: number;
+    page_size?: number;
+    anchor_row?: number | null;
+    highlighted_columns?: string[];
+  } = {},
+): Promise<WorksheetPreviewRecord> {
+  return request_json<WorksheetPreviewRecord>(
+    `/api/kb/sources/${source_id}/worksheets/${worksheet_key}/preview${build_query_string({
+      version_id: options.version_id ?? undefined,
+      page: options.page ?? 1,
+      page_size: options.page_size ?? 50,
+      anchor_row: options.anchor_row ?? undefined,
+      highlighted_columns: options.highlighted_columns?.length ? options.highlighted_columns : undefined,
+    })}`,
+  );
 }

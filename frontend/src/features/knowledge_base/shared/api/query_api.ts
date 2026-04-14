@@ -81,6 +81,7 @@ export async function search_records(payload: {
 
 export async function search_entities(payload: {
   query: string;
+  scope: KBScopeRecord;
   limit?: number;
 }): Promise<EntitySearchItemRecord[]> {
   const response = await request_json<EntitySearchResponse>('/api/kb/search/entities', {
@@ -93,6 +94,7 @@ export async function search_entities(payload: {
 
 export async function search_relations(payload: {
   query: string;
+  scope: KBScopeRecord;
   limit?: number;
 }): Promise<RelationSearchItemRecord[]> {
   const response = await request_json<RelationSearchResponse>('/api/kb/search/relations', {
@@ -105,6 +107,7 @@ export async function search_relations(payload: {
 
 export async function search_sources(payload: {
   query: string;
+  scope: KBScopeRecord;
   limit?: number;
 }): Promise<SourceSearchItemRecord[]> {
   const response = await request_json<SourceSearchResponse>('/api/kb/search/sources', {

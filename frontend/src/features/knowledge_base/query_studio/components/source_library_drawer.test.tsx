@@ -1,0 +1,133 @@
+import { fireEvent, render, screen } from '@testing-library/react';
+import { describe, expect, it, vi } from 'vitest';
+
+import {
+  create_paragraph_record,
+  create_source_detail_record,
+  create_source_record,
+  create_source_version_record,
+  create_worksheet_preview_record,
+  create_worksheet_summary_record,
+} from '../../shared/test_helpers/workspace_slice_fixtures';
+import { SourceLibraryDrawer } from './source_library_drawer';
+
+vi.mock('../../shared/components/paragraph_evidence_preview', () => ({
+  ParagraphEvidencePreview: (props: { rendered_html?: string | null; text_content?: string | null }) => (
+    <div>{props.rendered_html ?? props.text_content}</div>
+  ),
+}));
+
+describe('SourceLibraryDrawer', () => {
+  function buildProps() {
+    const source = create_source_record({ id: 'source-1', name: 'sheet-source.xlsx' });
+    const version = create_source_version_record({ id: 'version-1', source_id: source.id });
+    return {
+      open: true,
+      sources: [source],
+      selected_source_ids: [],
+      set_selected_source_ids: vi.fn(),
+      selected_source_browser_id: source.id,
+      set_selected_source_browser_id: vi.fn(),
+      selected_source_version_id: version.id,
+      set_selected_source_version_id: vi.fn(),
+      query_scope_source_id: null,
+      set_query_scope_version_id: vi.fn(),
+      source_detail: create_source_detail_record({
+        source,
+        selected_version: version,
+        versions: [version],
+      }),
+      source_paragraphs: [
+        create_paragraph_record({
+          id: 'paragraph-1',
+          source_id: source.id,
+          version_id: version.id,
+          content: 'paragraph preview content',
+        }),
+      ],
+      source_worksheets: [
+        create_worksheet_summary_record({
+          worksheet_key: 'sheet-1',
+          worksheet_name: 'General Sheet',
+          row_count: 12,
+          headers: ['Name', 'Role'],
+          column_keys: ['name', 'role'],
+        }),
+        create_worksheet_summary_record({
+          worksheet_key: 'sheet-2',
+          worksheet_name: 'Terrain Sheet',
+          row_count: 8,
+          headers: ['Terrain', 'Meaning'],
+          column_keys: ['terrain', 'meaning'],
+        }),
+      ],
+      worksheet_preview: create_worksheet_preview_record({
+        source_id: source.id,
+        version_id: version.id,
+        worksheet_key: 'sheet-1',
+        worksheet_name: 'General Sheet',
+        headers: ['Name', 'Role'],
+        column_keys: ['name', 'role'],
+        items: [
+          {
+            paragraph_id: 'paragraph-1',
+            row_index: 3,
+            record_key: 'row-3',
+            cells: {
+              name: 'Bai Qi',
+              role: 'General',
+            },
+          },
+        ],
+      }),
+      selected_worksheet_key: 'sheet-1',
+      set_selected_worksheet_key: vi.fn(),
+      worksheet_page: 1,
+      set_worksheet_page: vi.fn(),
+      worksheet_anchor_row: 3,
+      worksheet_preview_mode: 'page' as const,
+      set_worksheet_preview_mode: vi.fn(),
+      is_loading_source_worksheets: false,
+      is_loading_worksheet_preview: false,
+      source_worksheets_error: null,
+      worksheet_preview_error: null,
+      is_updating_source: false,
+      is_deleting_source: false,
+      update_source: vi.fn(async () => {}),
+      delete_source: vi.fn(async () => {}),
+      on_close: vi.fn(),
+      on_focus_paragraph: vi.fn(),
+    };
+  }
+
+  it('renders worksheet preview and switches selected worksheet', () => {
+    const props = buildProps();
+
+    render(<SourceLibraryDrawer {...props} />);
+
+    expect(screen.getByRole('columnheader', { name: 'Name' })).toBeInTheDocument();
+    expect(screen.getByRole('columnheader', { name: 'Role' })).toBeInTheDocument();
+    expect(screen.getByText('Bai Qi')).toBeInTheDocument();
+    expect(screen.getByText('General')).toBeInTheDocument();
+
+    fireEvent.change(screen.getAllByRole('combobox')[1], {
+      target: { value: 'sheet-2' },
+    });
+
+    expect(props.set_selected_worksheet_key).toHaveBeenCalledWith('sheet-2');
+  });
+
+  it('shows no worksheet table when the source has no worksheets', () => {
+    const props = buildProps();
+    render(
+      <SourceLibraryDrawer
+        {...props}
+        source_worksheets={[]}
+        worksheet_preview={null}
+        selected_worksheet_key={null}
+      />,
+    );
+
+    expect(screen.queryByRole('table')).not.toBeInTheDocument();
+  });
+});

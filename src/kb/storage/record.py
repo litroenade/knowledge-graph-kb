@@ -206,6 +206,121 @@ class RecordStore:
         )
         return {str(row["paragraph_id"]): row for row in rows}
 
+    def get_worksheet_summary(
+        self,
+        *,
+        source_id: str,
+        version_id: str,
+        worksheet_key: str,
+    ) -> dict[str, Any] | None:
+        normalized_worksheet_key = normalize_sheet_name(worksheet_key)
+        if not source_id or not version_id or not normalized_worksheet_key:
+            return None
+        summary_row = self.gateway.fetch_one(
+            """
+            SELECT
+                MAX(worksheet_name) AS worksheet_name,
+                COUNT(*) AS total_rows,
+                MIN(row_index) AS min_row_index,
+                MAX(row_index) AS max_row_index
+            FROM record_rows
+            WHERE source_id = ? AND version_id = ? AND worksheet_key = ?
+            """,
+            (source_id, version_id, normalized_worksheet_key),
+        )
+        if summary_row is None or int(summary_row.get("total_rows") or 0) <= 0:
+            return None
+        first_row = self.gateway.fetch_one(
+            """
+            SELECT *
+            FROM record_rows
+            WHERE source_id = ? AND version_id = ? AND worksheet_key = ?
+            ORDER BY row_index ASC
+            LIMIT 1
+            """,
+            (source_id, version_id, normalized_worksheet_key),
+        )
+        metadata = dict(first_row.get("metadata") or {}) if first_row else {}
+        return {
+            "worksheet_name": str(summary_row.get("worksheet_name") or ""),
+            "worksheet_key": normalized_worksheet_key,
+            "total_rows": int(summary_row.get("total_rows") or 0),
+            "min_row_index": int(summary_row.get("min_row_index") or 0),
+            "max_row_index": int(summary_row.get("max_row_index") or 0),
+            "headers": [
+                str(value)
+                for value in list(metadata.get("headers") or [])
+                if str(value).strip()
+            ],
+            "column_keys": [
+                normalize_column_name(str(value))
+                for value in list(metadata.get("header_keys") or [])
+                if normalize_column_name(str(value))
+            ],
+        }
+
+    def count_rows_before(
+        self,
+        *,
+        source_id: str,
+        version_id: str,
+        worksheet_key: str,
+        row_index: int,
+    ) -> int:
+        normalized_worksheet_key = normalize_sheet_name(worksheet_key)
+        normalized_row_index = int(row_index or 0)
+        if not source_id or not version_id or not normalized_worksheet_key or normalized_row_index <= 0:
+            return 0
+        row = self.gateway.fetch_one(
+            """
+            SELECT COUNT(*) AS row_count
+            FROM record_rows
+            WHERE source_id = ? AND version_id = ? AND worksheet_key = ? AND row_index < ?
+            """,
+            (source_id, version_id, normalized_worksheet_key, normalized_row_index),
+        )
+        return int(row.get("row_count") or 0) if row else 0
+
+    def list_rows_for_worksheet_page(
+        self,
+        *,
+        source_id: str,
+        version_id: str,
+        worksheet_key: str,
+        offset: int,
+        limit: int,
+    ) -> list[dict[str, Any]]:
+        normalized_worksheet_key = normalize_sheet_name(worksheet_key)
+        normalized_offset = max(0, int(offset or 0))
+        normalized_limit = max(1, int(limit or 1))
+        if not source_id or not version_id or not normalized_worksheet_key:
+            return []
+        rows = self.gateway.fetch_all(
+            """
+            SELECT *
+            FROM record_rows
+            WHERE source_id = ? AND version_id = ? AND worksheet_key = ?
+            ORDER BY row_index ASC
+            LIMIT ? OFFSET ?
+            """,
+            (source_id, version_id, normalized_worksheet_key, normalized_limit, normalized_offset),
+        )
+        cell_map = self.list_cells([str(row["id"]) for row in rows])
+        return [
+            {
+                **row,
+                "display_cells": {
+                    str(cell["column_name"]): str(cell["cell_value"])
+                    for cell in cell_map.get(str(row["id"]), [])
+                },
+                "cells": {
+                    str(cell["normalized_column_name"]): str(cell["cell_value"])
+                    for cell in cell_map.get(str(row["id"]), [])
+                },
+            }
+            for row in rows
+        ]
+
     def list_rows_in_windows(
         self,
         windows: list[tuple[Any, ...]],

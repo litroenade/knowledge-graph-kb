@@ -35,4 +35,15 @@ export const kb_query_keys = {
     ['kb', 'sources', 'detail', source_id, version_id ?? null] as const,
   source_paragraphs: (source_id: string | null, version_id?: string | null) =>
     ['kb', 'sources', 'paragraphs', source_id, version_id ?? null] as const,
+  source_worksheets: (source_id: string | null, version_id?: string | null) =>
+    ['kb', 'sources', 'worksheets', source_id, version_id ?? null] as const,
+  source_worksheet_preview: (params: {
+    source_id: string | null;
+    version_id?: string | null;
+    worksheet_key: string | null;
+    page: number;
+    page_size: number;
+    anchor_row: number | null;
+    highlighted_columns: string[];
+  }) => ['kb', 'sources', 'worksheet-preview', params] as const,
 };

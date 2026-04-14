@@ -15,8 +15,10 @@ from src.kb.importing.evidence import (
     RENDER_KIND_ROW_RECORD,
     RENDER_KIND_SHEET_SUMMARY,
     RENDER_KIND_TEXT,
+    RENDER_KIND_WORKSHEET_PREVIEW,
     build_paragraph_render_payload,
 )
+from src.kb.importing.excel import normalize_sheet_name
 from src.kb.providers import OpenAiGateway
 from src.kb.storage import AnswerReadStore, RecordStore, SourceStore, StaleVectorIndexError
 from src.utils.logger import get_logger
@@ -191,6 +193,9 @@ class AnswerService:
                     or None,
                     "file_path": str(paragraph.get("file_path") or citation.get("file_path") or "") or None,
                     "worksheet_name": self._worksheet_name_from_payload(paragraph, render_payload, citation),
+                    "worksheet_key": self._worksheet_key_from_payload(paragraph, record_row, citation),
+                    "row_index": self._row_index_from_payload(paragraph, record_row, citation),
+                    "anchor_row_index": self._row_index_from_payload(paragraph, record_row, citation),
                     "page_number": self._optional_int(
                         dict(paragraph.get("metadata") or {}).get("page_number")
                         or dict(render_payload.get("render_metadata") or {}).get("page_number")
@@ -279,6 +284,9 @@ class AnswerService:
                     "matched_fields": self._normalize_string_list(matched_columns),
                     "source_kind": str(paragraph.get("source_kind") or "").strip() or None,
                     "worksheet_name": self._worksheet_name_from_payload(paragraph, render_payload),
+                    "worksheet_key": self._worksheet_key_from_payload(paragraph, record_row),
+                    "row_index": self._row_index_from_payload(paragraph, record_row),
+                    "anchor_row_index": self._row_index_from_payload(paragraph, record_row),
                     "page_number": self._optional_int(
                         dict(paragraph.get("metadata") or {}).get("page_number")
                         or dict(render_payload.get("render_metadata") or {}).get("page_number")
@@ -397,7 +405,12 @@ class AnswerService:
 
     def _with_render_defaults(self, citation: dict[str, Any]) -> dict[str, Any]:
         render_kind = str(citation.get("render_kind") or RENDER_KIND_TEXT)
-        if render_kind not in {RENDER_KIND_TEXT, RENDER_KIND_ROW_RECORD, RENDER_KIND_SHEET_SUMMARY}:
+        if render_kind not in {
+            RENDER_KIND_TEXT,
+            RENDER_KIND_ROW_RECORD,
+            RENDER_KIND_SHEET_SUMMARY,
+            RENDER_KIND_WORKSHEET_PREVIEW,
+        }:
             render_kind = RENDER_KIND_TEXT
         return {
             **citation,
@@ -406,6 +419,9 @@ class AnswerService:
             "source_kind": str(citation.get("source_kind") or "").strip() or None,
             "file_path": str(citation.get("file_path") or "").strip() or None,
             "worksheet_name": str(citation.get("worksheet_name") or "").strip() or None,
+            "worksheet_key": str(citation.get("worksheet_key") or "").strip() or None,
+            "row_index": self._optional_int(citation.get("row_index")),
+            "anchor_row_index": self._optional_int(citation.get("anchor_row_index") or citation.get("row_index")),
             "page_number": self._optional_int(citation.get("page_number")),
             "paragraph_position": self._optional_int(citation.get("paragraph_position")),
             "winning_lane": str(citation.get("winning_lane") or "").strip() or None,
@@ -478,6 +494,45 @@ class AnswerService:
             or str(fallback.get("worksheet_name") or "").strip()
         )
         return worksheet_name or None
+
+    def _worksheet_key_from_payload(
+        self,
+        paragraph: dict[str, Any],
+        record_row: dict[str, Any] | None,
+        citation: dict[str, Any] | None = None,
+    ) -> str | None:
+        metadata = dict(paragraph.get("metadata") or {})
+        fallback = dict(citation or {})
+        worksheet_key = (
+            str(record_row.get("worksheet_key") or "").strip()
+            if record_row is not None
+            else ""
+        )
+        if worksheet_key:
+            return worksheet_key
+        normalized_key = normalize_sheet_name(
+            str(metadata.get("worksheet_key") or metadata.get("worksheet_name") or fallback.get("worksheet_key") or fallback.get("worksheet_name") or "")
+        )
+        return normalized_key or None
+
+    def _row_index_from_payload(
+        self,
+        paragraph: dict[str, Any],
+        record_row: dict[str, Any] | None,
+        citation: dict[str, Any] | None = None,
+    ) -> int | None:
+        metadata = dict(paragraph.get("metadata") or {})
+        fallback = dict(citation or {})
+        return self._optional_int(
+            (
+                record_row.get("row_index")
+                if record_row is not None
+                else None
+            )
+            or metadata.get("row_index")
+            or fallback.get("anchor_row_index")
+            or fallback.get("row_index")
+        )
 
     def _citation_match_reason(self, *, retriever: str, match_type: str) -> str:
         match_type_map = {

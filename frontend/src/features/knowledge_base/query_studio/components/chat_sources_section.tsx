@@ -15,7 +15,7 @@ interface ChatSourcesSectionProps {
       anchor_node_ids?: string[];
     },
   ) => void;
-  on_focus_paragraph: (paragraph_id: string) => void;
+  on_open_source_preview: (citation: AnswerCitationRecord) => void;
 }
 
 const PAGE_SIZE = 3;
@@ -30,7 +30,7 @@ export function ChatSourcesSection(props: ChatSourcesSectionProps) {
     excluded_source_ids,
     on_toggle_source_exclusion,
     on_view_in_graph,
-    on_focus_paragraph,
+    on_open_source_preview,
   } = props;
   const [open, set_open] = useState(false);
   const [page, set_page] = useState(1);
@@ -82,6 +82,9 @@ export function ChatSourcesSection(props: ChatSourcesSectionProps) {
                     {citation.file_path ? <span>{citation.file_path}</span> : null}
                     {citation.version_id ? <span>{`版本 ${citation.version_id}`}</span> : null}
                     {citation.worksheet_name ? <span>{citation.worksheet_name}</span> : null}
+                    {citation.row_index !== null && citation.row_index !== undefined ? (
+                      <span>{`行 ${citation.row_index}`}</span>
+                    ) : null}
                     {citation.page_number !== null && citation.page_number !== undefined ? (
                       <span>{`第 ${citation.page_number} 页`}</span>
                     ) : null}
@@ -102,17 +105,17 @@ export function ChatSourcesSection(props: ChatSourcesSectionProps) {
                     </button>
                     <button
                       className='kb-secondary-button'
-                      onClick={() => on_focus_paragraph(citation.paragraph_id)}
+                      onClick={() => on_open_source_preview(citation)}
                       type='button'
                     >
-                      定位段落
+                      在来源中查看
                     </button>
                     <button
                       className='kb-secondary-button'
                       onClick={() => on_toggle_source_exclusion(citation.source_id)}
                       type='button'
                     >
-                      {excluded ? '重新纳入来源' : '排除该来源'}
+                      {excluded ? '重新纳入来源' : '排除此来源'}
                     </button>
                   </div>
                 </article>

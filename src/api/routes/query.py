@@ -50,7 +50,11 @@ def create_chat_session(
 def get_chat_session(session_id: str, conversation_service=Depends(get_conversation_service)) -> ChatSessionDetailResponse:
     session = conversation_service.get_session(session_id)
     if session is None:
-        raise api_error(status_code=404, code="chat_session_not_found", message="Chat session not found.")
+        raise api_error(
+            status_code=404,
+            code="chat_session_not_found",
+            message="\u672a\u627e\u5230\u95ee\u7b54\u4f1a\u8bdd\u3002",
+        )
     return ChatSessionDetailResponse(
         session=ChatSessionItem(**{key: value for key, value in session.items() if key != "messages"}),
         messages=[ChatMessageItem(**message) for message in list(session.get("messages") or [])],
@@ -110,7 +114,13 @@ def search_records(
 
 @search_router.post("/entities", response_model=EntitySearchResponse)
 def search_entities(payload: EntitySearchRequest, entity_search_service=Depends(get_entity_search_service)) -> EntitySearchResponse:
-    return EntitySearchResponse(**entity_search_service.search_entities(query=payload.query, limit=payload.limit))
+    return EntitySearchResponse(
+        **entity_search_service.search_entities(
+            query=payload.query,
+            scope=payload.scope.model_dump(),
+            limit=payload.limit,
+        )
+    )
 
 
 @search_router.post("/relations", response_model=RelationSearchResponse)
@@ -118,9 +128,21 @@ def search_relations(
     payload: RelationSearchRequest,
     relation_search_service=Depends(get_relation_search_service),
 ) -> RelationSearchResponse:
-    return RelationSearchResponse(**relation_search_service.search_relations(query=payload.query, limit=payload.limit))
+    return RelationSearchResponse(
+        **relation_search_service.search_relations(
+            query=payload.query,
+            scope=payload.scope.model_dump(),
+            limit=payload.limit,
+        )
+    )
 
 
 @search_router.post("/sources", response_model=SourceSearchResponse)
 def search_sources(payload: SourceSearchRequest, source_search_service=Depends(get_source_search_service)) -> SourceSearchResponse:
-    return SourceSearchResponse(**source_search_service.search_sources(query=payload.query, limit=payload.limit))
+    return SourceSearchResponse(
+        **source_search_service.search_sources(
+            query=payload.query,
+            scope=payload.scope.model_dump(),
+            limit=payload.limit,
+        )
+    )
