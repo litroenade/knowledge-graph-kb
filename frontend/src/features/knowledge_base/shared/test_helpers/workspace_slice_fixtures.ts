@@ -54,7 +54,7 @@ export function create_source_record(overrides: Partial<SourceRecord> = {}): Sou
     input_mode: overrides.input_mode ?? 'upload',
     file_type: overrides.file_type ?? 'txt',
     storage_path: overrides.storage_path ?? null,
-    strategy: overrides.strategy ?? 'summary',
+    strategy: overrides.strategy ?? 'auto',
     status: overrides.status ?? 'ready',
     summary: overrides.summary ?? '默认来源摘要',
     metadata: overrides.metadata ?? {},
@@ -303,6 +303,7 @@ export function create_source_slice_fixture(
 
   return {
     sources: overrides.sources ?? [source],
+    browser_sources: overrides.browser_sources ?? overrides.sources ?? [source],
     refresh_sources: overrides.refresh_sources ?? vi.fn(async () => {}),
     update_source: overrides.update_source ?? vi.fn(async () => {}),
     delete_source: overrides.delete_source ?? vi.fn(async () => {}),

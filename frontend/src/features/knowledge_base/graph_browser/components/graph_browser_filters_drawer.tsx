@@ -1,8 +1,15 @@
 ﻿import type { GraphDataView, SourceRecord } from '../../shared/types/knowledge_base_types';
-import { DENSITY_PRESETS, format_source_display_name } from './graph_browser_utils';
+import {
+  DENSITY_PRESETS,
+  format_source_display_name,
+  format_source_raw_stats,
+  preferred_source_summary,
+} from './graph_browser_utils';
 
 interface GraphBrowserFiltersDrawerProps {
   source_scope_label: string;
+  graph_scope_summary: string;
+  visible_graph_summary: string;
   source_keyword: string;
   filtered_sources: SourceRecord[];
   sources: SourceRecord[];
@@ -21,6 +28,8 @@ interface GraphBrowserFiltersDrawerProps {
 export function GraphBrowserFiltersDrawer(props: GraphBrowserFiltersDrawerProps) {
   const {
     source_scope_label,
+    graph_scope_summary,
+    visible_graph_summary,
     source_keyword,
     filtered_sources,
     sources,
@@ -64,14 +73,17 @@ export function GraphBrowserFiltersDrawer(props: GraphBrowserFiltersDrawerProps)
         <div className='kb-graph-filter-stat'>
           <span>来源范围</span>
           <strong>{selected_scope_summary}</strong>
+          <span>{source_scope_label}</span>
         </div>
         <div className='kb-graph-filter-stat'>
-          <span>图谱视图</span>
-          <strong>{active_view_summary}</strong>
+          <span>当前图谱范围</span>
+          <strong>{graph_scope_summary}</strong>
+          <span>{active_view_summary}</span>
         </div>
         <div className='kb-graph-filter-stat'>
-          <span>语义密度</span>
-          <strong>{`${density}%`}</strong>
+          <span>当前画布可见</span>
+          <strong>{visible_graph_summary}</strong>
+          <span>{graph_data_view === 'semantic' ? '随视图投影与聚合变化' : '随当前视图投影变化'}</span>
         </div>
       </section>
 
@@ -102,7 +114,10 @@ export function GraphBrowserFiltersDrawer(props: GraphBrowserFiltersDrawerProps)
               />
               <div>
                 <strong>{format_source_display_name(source, sources)}</strong>
-                <span>{source.summary || source.source_kind}</span>
+                <span>
+                  {format_source_raw_stats(source) ??
+                    preferred_source_summary(source, source.source_kind || '暂无摘要')}
+                </span>
               </div>
             </label>
           ))}

@@ -1,7 +1,7 @@
 import { TASK_STATUS_ORDER } from '../../shared/config/ui_constants';
 import type { ImportTaskRecord } from '../../shared/types/knowledge_base_types';
 
-const ACTIVE_TASK_STATUSES: ReadonlySet<string> = new Set(['queued', 'running']);
+const ACTIVE_TASK_STATUSES: ReadonlySet<string> = new Set(['queued', 'running', 'cancelling']);
 
 function parse_task_timestamp(value: string): number {
   const timestamp = Date.parse(value);

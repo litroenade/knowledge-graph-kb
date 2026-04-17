@@ -3,6 +3,7 @@
  */
 
 import type {
+  KBScopeRecord,
   ParagraphRecord,
   SourceDetailRecord,
   SourceRecord,
@@ -19,8 +20,25 @@ interface SourceWorksheetsResponse {
   items: WorksheetSummaryRecord[];
 }
 
-export function list_sources(keyword?: string): Promise<SourceRecord[]> {
-  return request_json<SourceRecord[]>(`/api/kb/sources${build_query_string({ keyword, limit: 100 })}`);
+interface ListSourcesOptions {
+  keyword?: string;
+  limit?: number;
+  scope?: KBScopeRecord | null;
+}
+
+export function list_sources(options: ListSourcesOptions = {}): Promise<SourceRecord[]> {
+  const { keyword, limit = 100, scope } = options;
+  return request_json<SourceRecord[]>(
+    `/api/kb/sources${build_query_string({
+      keyword,
+      limit,
+      mode: scope?.mode,
+      source_ids: scope?.source_ids?.length ? scope.source_ids : undefined,
+      version_mode: scope?.version_mode,
+      version_id: scope?.version_id ?? undefined,
+      excluded_source_ids: scope?.excluded_source_ids?.length ? scope.excluded_source_ids : undefined,
+    })}`,
+  );
 }
 
 export function get_source_detail(

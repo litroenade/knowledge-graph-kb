@@ -8,7 +8,6 @@ import {
 
 import type { ResolvedTheme, ThemeMode } from '../../theme';
 import { WorkspaceBody } from './shared/components/workspace_body';
-import { WorkspaceHeader } from './shared/components/workspace_header';
 import { WorkspaceOverview } from './shared/components/workspace_overview';
 import { KnowledgeBaseWorkspaceProvider } from './shared/context/knowledge_base_workspace_context';
 import { use_workspace_shell } from './shared/hooks/use_workspace_shell';
@@ -102,7 +101,7 @@ function KnowledgeBaseWorkspaceShell(props: KnowledgeBaseWorkspaceProps) {
       >
         {!sidebar_collapsed ? (
           <div className='kb-sidebar-shell'>
-            <WorkspaceOverview collapsed={false} />
+            <WorkspaceOverview collapsed={false} on_toggle_sidebar={handle_toggle_sidebar} />
             <button
               aria-label='调整侧边栏宽度'
               className='kb-sidebar-resizer'
@@ -113,10 +112,18 @@ function KnowledgeBaseWorkspaceShell(props: KnowledgeBaseWorkspaceProps) {
         ) : null}
 
         <section className='kb-shell-main'>
-          <WorkspaceHeader
-            on_toggle_sidebar={handle_toggle_sidebar}
-            sidebar_collapsed={sidebar_collapsed}
-          />
+          {sidebar_collapsed ? (
+            <div className='kb-shell-main-toggle-row'>
+              <button
+                aria-label='展开侧边栏'
+                className='kb-sidebar-toggle kb-sidebar-toggle-main kb-shell-main-toggle'
+                onClick={handle_toggle_sidebar}
+                type='button'
+              >
+                <span>{'>'}</span>
+              </button>
+            </div>
+          ) : null}
           <section className='kb-workspace-body'>
             <WorkspaceBody resolved_theme={resolved_theme} />
           </section>

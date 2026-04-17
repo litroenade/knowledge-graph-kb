@@ -14,14 +14,14 @@ import {
   sort_import_tasks,
 } from '../utils/import_task_order';
 
-type ImportPanelMode = 'upload' | 'paste' | 'scan';
+type ImportPanelMode = 'upload' | 'paste' | 'scan' | 'structured';
+type StructuredImportRoute = 'openie' | 'convert';
 
 const STRATEGY_OPTIONS = [
   { value: 'auto', label: '自动策略' },
-  { value: 'summary', label: '摘要抽取' },
   { value: 'factual', label: '事实抽取' },
-  { value: 'semantic', label: '语义抽取' },
-  { value: 'hybrid', label: '混合策略' },
+  { value: 'narrative', label: '叙事抽取' },
+  { value: 'quote', label: '引用抽取' },
 ];
 
 function task_summary(task: { total_files: number; completed_files: number; failed_files: number }): string {
@@ -38,6 +38,9 @@ export function ImportCenterPanel() {
   const [paste_content, set_paste_content] = useState('');
   const [scan_root_path, set_scan_root_path] = useState('');
   const [scan_glob, set_scan_glob] = useState('**/*.*');
+  const [structured_route, set_structured_route] = useState<StructuredImportRoute>('openie');
+  const [structured_title, set_structured_title] = useState('');
+  const [structured_payload, set_structured_payload] = useState('');
 
   const tasks = useMemo(() => sort_import_tasks(imports.tasks), [imports.tasks]);
 
@@ -56,8 +59,8 @@ export function ImportCenterPanel() {
       return;
     }
     await imports.import_paste_text(title, content, strategy);
-    setPasteTitle('');
-    setPasteContent('');
+    set_paste_title('');
+    set_paste_content('');
   }
 
   async function handle_submit_scan(event: FormEvent<HTMLFormElement>): Promise<void> {
@@ -70,12 +73,16 @@ export function ImportCenterPanel() {
     await imports.import_scan_path(root_path, glob_pattern, strategy);
   }
 
-  function setPasteTitle(value: string) {
-    set_paste_title(value);
-  }
-
-  function setPasteContent(value: string) {
-    set_paste_content(value);
+  async function handle_submit_structured(event: FormEvent<HTMLFormElement>): Promise<void> {
+    event.preventDefault();
+    const title = structured_title.trim();
+    const payload_text = structured_payload.trim();
+    if (!title || !payload_text) {
+      return;
+    }
+    await imports.import_structured_payload(structured_route, title, payload_text, strategy);
+    set_structured_title('');
+    set_structured_payload('');
   }
 
   return (
@@ -124,6 +131,13 @@ export function ImportCenterPanel() {
         >
           扫描目录
         </button>
+        <button
+          className={`kb-pill-button ${mode === 'structured' ? 'is-active' : ''}`}
+          onClick={() => set_mode('structured')}
+          type='button'
+        >
+          高级结构化导入
+        </button>
       </div>
 
       <section className='kb-detail-card'>
@@ -162,11 +176,11 @@ export function ImportCenterPanel() {
           <form className='kb-result-stack' onSubmit={(event) => void handle_submit_paste(event)}>
             <label className='kb-form-field'>
               <span>标题</span>
-              <input onChange={(event) => setPasteTitle(event.target.value)} type='text' value={paste_title} />
+              <input onChange={(event) => set_paste_title(event.target.value)} type='text' value={paste_title} />
             </label>
             <label className='kb-form-field'>
               <span>内容</span>
-              <textarea onChange={(event) => setPasteContent(event.target.value)} rows={8} value={paste_content} />
+              <textarea onChange={(event) => set_paste_content(event.target.value)} rows={8} value={paste_content} />
             </label>
             <div className='kb-button-row'>
               <button
@@ -197,6 +211,51 @@ export function ImportCenterPanel() {
                 type='submit'
               >
                 {imports.is_submitting_import ? '提交中…' : '提交目录扫描'}
+              </button>
+            </div>
+          </form>
+        ) : null}
+
+        {mode === 'structured' ? (
+          <form className='kb-result-stack' onSubmit={(event) => void handle_submit_structured(event)}>
+            <label className='kb-form-field'>
+              <span>结构化类型</span>
+              <select
+                onChange={(event) => set_structured_route(event.target.value as StructuredImportRoute)}
+                value={structured_route}
+              >
+                <option value='openie'>OpenIE JSON</option>
+                <option value='convert'>Convert JSON</option>
+              </select>
+            </label>
+            <label className='kb-form-field'>
+              <span>标题</span>
+              <input
+                onChange={(event) => set_structured_title(event.target.value)}
+                placeholder='例如：外部抽取结果'
+                type='text'
+                value={structured_title}
+              />
+            </label>
+            <label className='kb-form-field'>
+              <span>JSON Payload</span>
+              <textarea
+                onChange={(event) => set_structured_payload(event.target.value)}
+                placeholder='{"paragraphs":[],"entities":[],"relations":[]}'
+                rows={12}
+                value={structured_payload}
+              />
+            </label>
+            <span className='kb-context-label'>
+              直接提交现有结构化 payload，不额外扩展前后端协议。
+            </span>
+            <div className='kb-button-row'>
+              <button
+                className='kb-primary-button'
+                disabled={imports.is_submitting_import || !structured_title.trim() || !structured_payload.trim()}
+                type='submit'
+              >
+                {imports.is_submitting_import ? '提交中…' : '提交结构化导入'}
               </button>
             </div>
           </form>

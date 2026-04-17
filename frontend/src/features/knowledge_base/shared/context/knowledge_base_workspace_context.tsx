@@ -73,6 +73,7 @@ function select_import_slice(workspace: KnowledgeBaseWorkspaceStore) {
 function select_source_slice(workspace: KnowledgeBaseWorkspaceStore) {
   return {
     sources: workspace.sources,
+    browser_sources: workspace.browser_sources,
     refresh_sources: workspace.refresh_sources,
     update_source: workspace.update_source,
     delete_source: workspace.delete_source,

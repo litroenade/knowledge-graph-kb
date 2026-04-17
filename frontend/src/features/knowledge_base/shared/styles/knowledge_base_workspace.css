@@ -71,8 +71,8 @@
 }
 
 .kb-shell-main {
-  display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
+  display: flex;
+  flex-direction: column;
   gap: 10px;
 }
 
@@ -126,7 +126,7 @@
 }
 
 .kb-sidebar-brand {
-  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: start;
   gap: 10px;
 }
@@ -367,6 +367,12 @@
   height: 38px;
 }
 
+.kb-sidebar-toggle-inline {
+  width: 34px;
+  height: 34px;
+  align-self: start;
+}
+
 .kb-sidebar-resizer {
   align-self: stretch;
   width: 6px;
@@ -487,8 +493,14 @@
 
 .kb-workspace-body {
   position: relative;
+  flex: 1 1 auto;
   min-height: 0;
   overflow: hidden;
+}
+
+.kb-shell-main-toggle-row {
+  display: flex;
+  justify-content: flex-start;
 }
 
 .kb-workspace-stack {
@@ -730,6 +742,11 @@
 
 .kb-source-library-hit span {
   color: var(--text-secondary);
+}
+
+.kb-source-detail-stats {
+  display: grid;
+  gap: 6px;
 }
 
 .kb-source-library-paragraphs {

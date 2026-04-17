@@ -96,3 +96,35 @@ def test_query_search_endpoints_respect_scope(client: TestClient) -> None:
     )
     assert source_scoped_response.status_code == 200, source_scoped_response.text
     assert [item["id"] for item in source_scoped_response.json()["items"]] == [source_two_id]
+
+
+def test_source_list_endpoint_respects_scope_and_exclusions(client: TestClient) -> None:
+    _import_source(client, "Scoped Browse One.txt", "Alpha and Beta are linked in the same paragraph.")
+    _import_source(client, "Scoped Browse Two.txt", "Gamma appears in another source.")
+
+    source_one_id = _source_id_by_name(client, "Scoped Browse One.txt")
+    source_two_id = _source_id_by_name(client, "Scoped Browse Two.txt")
+
+    scoped_response = client.get(
+        "/api/kb/sources",
+        params=[
+            ("mode", "subset"),
+            ("source_ids", source_two_id),
+            ("limit", "20"),
+        ],
+    )
+    assert scoped_response.status_code == 200, scoped_response.text
+    assert [item["id"] for item in scoped_response.json()] == [source_two_id]
+
+    excluded_response = client.get(
+        "/api/kb/sources",
+        params=[
+            ("mode", "all"),
+            ("excluded_source_ids", source_two_id),
+            ("limit", "20"),
+        ],
+    )
+    assert excluded_response.status_code == 200, excluded_response.text
+    excluded_ids = {item["id"] for item in excluded_response.json()}
+    assert source_one_id in excluded_ids
+    assert source_two_id not in excluded_ids

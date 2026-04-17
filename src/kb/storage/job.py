@@ -371,7 +371,7 @@ class ImportJobStore:
                     message = '应用重启时任务尚未完成，已标记为中止。',
                     finished_at = COALESCE(finished_at, ?),
                     updated_at = ?
-                WHERE status IN ('queued', 'running')
+                WHERE status IN ('queued', 'running', 'cancelling')
                 """,
                 (now, now),
             )
@@ -381,7 +381,7 @@ class ImportJobStore:
                 SET status = 'aborted',
                     current_step = 'aborted',
                     updated_at = ?
-                WHERE status IN ('queued', 'running')
+                WHERE status IN ('queued', 'running', 'cancelling')
                 """,
                 (now,),
             )
@@ -391,7 +391,7 @@ class ImportJobStore:
                 SET status = 'aborted',
                     step = 'aborted',
                     updated_at = ?
-                WHERE status IN ('queued', 'running')
+                WHERE status IN ('queued', 'running', 'cancelling')
                 """,
                 (now,),
             )

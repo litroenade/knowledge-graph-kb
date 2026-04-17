@@ -182,9 +182,33 @@ def delete_manual_relation(relation_id: str, graph_service=Depends(get_graph_ser
 def list_sources(
     keyword: str | None = Query(default=None),
     limit: int = Query(default=100, ge=1, le=500),
+    mode: str | None = Query(default=None),
+    source_ids: list[str] = Query(default_factory=list),
+    version_mode: str | None = Query(default=None),
+    version_id: str | None = Query(default=None),
+    excluded_source_ids: list[str] = Query(default_factory=list),
     source_service=Depends(get_source_service),
 ) -> list[SourceItem]:
-    return [SourceItem(**item) for item in source_service.list_sources(keyword=keyword, limit=limit)]
+    scope = None
+    if mode is not None or source_ids or version_mode is not None or version_id is not None or excluded_source_ids:
+        scope = {
+            "mode": mode or ("subset" if source_ids else "all"),
+            "source_ids": source_ids,
+            "version_mode": version_mode or ("specific" if version_id else "latest"),
+            "version_id": version_id,
+            "excluded_source_ids": excluded_source_ids,
+        }
+    try:
+        return [
+            SourceItem(**item)
+            for item in source_service.list_sources(
+                keyword=keyword,
+                limit=limit,
+                scope=scope,
+            )
+        ]
+    except ValueError as exc:
+        raise api_error(status_code=400, code="invalid_source_scope", message=str(exc)) from exc
 
 
 @source_router.get("/{source_id}", response_model=SourceDetailResponse)

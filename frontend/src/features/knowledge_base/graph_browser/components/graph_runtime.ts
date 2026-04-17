@@ -782,8 +782,12 @@ export class GraphRuntime {
     this.destroyed = true;
     this.on_hover_change(null);
     this.hover_target = null;
-    this.viewport?.removeAllListeners();
-    this.app?.destroy(true, { children: true });
+    if (this.viewport) {
+      this.viewport.removeAllListeners();
+      this.viewport.parent?.removeChild(this.viewport);
+      this.viewport.destroy({ children: true });
+    }
+    this.app?.destroy({ removeView: true }, false);
     this.app = null;
     this.viewport = null;
     this.layout_positions = new Map();

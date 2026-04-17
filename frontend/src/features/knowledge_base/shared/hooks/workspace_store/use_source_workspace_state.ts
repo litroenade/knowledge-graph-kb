@@ -19,6 +19,7 @@ import {
   update_source,
 } from '../../api/source_api';
 import type {
+  KBScopeRecord,
   ParagraphRecord,
   SourceDetailRecord,
   SourceRecord,
@@ -35,6 +36,7 @@ type WorksheetPreviewMode = 'page' | 'context';
 interface SourceWorkspaceStateProps {
   active_workspace: WorkspaceTab;
   is_source_library_open: boolean;
+  browser_scope: KBScopeRecord;
   set_message: Dispatch<SetStateAction<string>>;
   set_error: Dispatch<SetStateAction<string | null>>;
 }
@@ -58,7 +60,7 @@ function unique_columns(values: string[]): string[] {
 }
 
 export function use_source_workspace_state(props: SourceWorkspaceStateProps) {
-  const { active_workspace, is_source_library_open, set_message, set_error } = props;
+  const { active_workspace, is_source_library_open, browser_scope, set_message, set_error } = props;
   const query_client = useQueryClient();
   const [selected_source_browser_id, set_selected_source_browser_id_state] = useState<string | null>(null);
   const [selected_source_version_id, set_selected_source_version_id_state] = useState<string | null>(null);
@@ -175,8 +177,14 @@ export function use_source_workspace_state(props: SourceWorkspaceStateProps) {
   }, [update_selected_source_browser_id]);
 
   const sources_query = useQuery({
-    queryKey: kb_query_keys.source_list(),
+    queryKey: kb_query_keys.source_list({ kind: 'all' }),
     queryFn: () => list_sources(),
+  });
+
+  const browser_sources_query = useQuery({
+    queryKey: kb_query_keys.source_list({ kind: 'browser', scope: browser_scope }),
+    queryFn: () => list_sources({ scope: browser_scope }),
+    enabled: is_source_library_open,
   });
 
   const source_detail_query = useQuery({
@@ -297,6 +305,12 @@ export function use_source_workspace_state(props: SourceWorkspaceStateProps) {
   }, [set_error, sources_query.error]);
 
   useEffect(() => {
+    if (browser_sources_query.error) {
+      set_error((browser_sources_query.error as Error).message);
+    }
+  }, [browser_sources_query.error, set_error]);
+
+  useEffect(() => {
     if (source_detail_query.error) {
       set_error((source_detail_query.error as Error).message);
     }
@@ -321,16 +335,37 @@ export function use_source_workspace_state(props: SourceWorkspaceStateProps) {
   }, [set_error, worksheet_preview_query.error]);
 
   useEffect(() => {
-    const sources = sources_query.data ?? [];
-    if (active_workspace !== 'chat' || !is_source_library_open || selected_source_browser_id || !sources.length) {
+    const browser_sources = browser_sources_query.data ?? [];
+    if (
+      active_workspace !== 'chat' ||
+      !is_source_library_open ||
+      selected_source_browser_id ||
+      !browser_sources.length
+    ) {
       return;
     }
-    update_selected_source_browser_id(sources[0].id);
+    update_selected_source_browser_id(browser_sources[0].id);
   }, [
     active_workspace,
+    browser_sources_query.data,
     is_source_library_open,
     selected_source_browser_id,
-    sources_query.data,
+    update_selected_source_browser_id,
+  ]);
+
+  useEffect(() => {
+    const browser_sources = browser_sources_query.data ?? [];
+    if (!is_source_library_open || !selected_source_browser_id || !browser_sources.length) {
+      return;
+    }
+    if (browser_sources.some((source) => source.id === selected_source_browser_id)) {
+      return;
+    }
+    update_selected_source_browser_id(browser_sources[0].id);
+  }, [
+    browser_sources_query.data,
+    is_source_library_open,
+    selected_source_browser_id,
     update_selected_source_browser_id,
   ]);
 
@@ -380,6 +415,7 @@ export function use_source_workspace_state(props: SourceWorkspaceStateProps) {
   return useMemo(
     () => ({
       sources: (sources_query.data ?? []) as SourceRecord[],
+      browser_sources: (browser_sources_query.data ?? []) as SourceRecord[],
       refresh_sources,
       update_source: save_source,
       delete_source: remove_source,
@@ -426,6 +462,7 @@ export function use_source_workspace_state(props: SourceWorkspaceStateProps) {
       source_worksheets_query.data,
       source_worksheets_query.error,
       sources_query.data,
+      browser_sources_query.data,
       update_selected_source_browser_id,
       update_selected_source_version_id,
       update_selected_worksheet_key,

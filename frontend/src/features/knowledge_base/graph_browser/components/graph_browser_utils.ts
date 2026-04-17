@@ -17,7 +17,10 @@ export interface GraphSearchCandidateRecord {
 }
 
 type SourceLike = Pick<SourceRecord, 'id' | 'name'> &
-  Partial<Pick<SourceRecord, 'summary' | 'source_kind'>>;
+  Partial<Pick<SourceRecord, 'summary' | 'source_kind' | 'metadata'>>;
+
+const GENERATED_SOURCE_SUMMARY_PATTERN =
+  /^\d+\s+paragraphs,\s+\d+\s+entities,\s+\d+\s+relations(?:;.*)?$/i;
 
 export const GRAPH_LAYER_LABELS = {
   semantic: '语义层',
@@ -46,6 +49,17 @@ function short_source_id(source_id: string): string {
   return source_id.slice(0, 8);
 }
 
+function read_stat_count(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value) && value >= 0) {
+    return value;
+  }
+  if (typeof value === 'string' && value.trim()) {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
+  }
+  return null;
+}
+
 function build_source_name_count_map(sources: SourceLike[]): Map<string, number> {
   const counts = new Map<string, number>();
   for (const source of sources) {
@@ -68,6 +82,35 @@ export function format_source_display_name(source: SourceLike, sources: SourceLi
     return source.name;
   }
   return `${source.name} · ${short_source_id(source.id)}`;
+}
+
+export function is_generated_source_summary(summary: string | null | undefined): boolean {
+  return Boolean(summary && GENERATED_SOURCE_SUMMARY_PATTERN.test(summary.trim()));
+}
+
+export function preferred_source_summary(
+  source: SourceLike,
+  fallback = '暂无摘要',
+): string {
+  const summary = typeof source.summary === 'string' ? source.summary.trim() : '';
+  if (summary && !is_generated_source_summary(summary)) {
+    return summary;
+  }
+  return fallback;
+}
+
+export function format_source_raw_stats(source: SourceLike): string | null {
+  const metadata = source.metadata ?? {};
+  const paragraph_count = read_stat_count(metadata.paragraph_count);
+  const entity_count = read_stat_count(metadata.entity_count);
+  const relation_count = read_stat_count(metadata.relation_count);
+  const stat_items = [
+    paragraph_count !== null ? `段落 ${paragraph_count}` : null,
+    entity_count !== null ? `实体 ${entity_count}` : null,
+    relation_count !== null ? `关系 ${relation_count}` : null,
+  ].filter(Boolean) as string[];
+
+  return stat_items.length ? stat_items.join(' / ') : null;
 }
 
 export function compact_selected_source_summary(

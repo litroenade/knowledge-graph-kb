@@ -30,7 +30,20 @@ export const kb_query_keys = {
     ['kb', 'graph', 'node-detail', node_id, version_id ?? null] as const,
   edge_detail: (edge_id: string | null) => ['kb', 'graph', 'edge-detail', edge_id] as const,
   import_jobs: () => ['kb', 'imports', 'jobs'] as const,
-  source_list: () => ['kb', 'sources'] as const,
+  source_list: (params?: {
+    keyword?: string;
+    scope?: {
+      mode: string;
+      source_ids: string[];
+      version_mode: string;
+      version_id?: string | null;
+      excluded_source_ids: string[];
+    } | null;
+    kind?: 'all' | 'browser';
+  }) =>
+    params
+      ? (['kb', 'sources', 'list', params] as const)
+      : (['kb', 'sources', 'list'] as const),
   source_detail: (source_id: string | null, version_id?: string | null) =>
     ['kb', 'sources', 'detail', source_id, version_id ?? null] as const,
   source_paragraphs: (source_id: string | null, version_id?: string | null) =>

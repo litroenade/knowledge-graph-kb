@@ -37,15 +37,44 @@ class GraphService:
         anchor_edge_ids: list[str] | None = None,
     ) -> dict[str, Any]:
         normalized_scope = KBScope.from_payload(scope)
+        normalized_view = str(view or "semantic").strip().lower() or "semantic"
         source_version_pairs = self.source_store.resolve_scope_pairs(normalized_scope)
         if not source_version_pairs:
-            raise ValueError("Graph scope did not resolve to any active source snapshots.")
+            if normalized_view != "semantic":
+                return {"view": normalized_view, "nodes": [], "edges": []}
+            graph = self._build_semantic_graph(
+                source_version_pairs=[],
+                visible_sources=[],
+                source_name_by_id={},
+                visible_source_version_keys=set(),
+                density=density,
+            )
+            visible_node_ids = {str(node["id"]) for node in graph["nodes"]}
+            return {
+                "view": normalized_view,
+                "nodes": graph["nodes"],
+                "edges": self._prune_dangling_edges(graph["edges"], node_ids=visible_node_ids),
+            }
         visible_source_ids = list({str(pair["source_id"]) for pair in source_version_pairs})
         source_rows = self.graph_store.list_graph_sources(visible_source_ids)
         visible_sources = [source for source in source_rows if self._is_graph_visible_source(source)]
         visible_source_ids = [str(source["id"]) for source in visible_sources]
         if not visible_source_ids:
-            return {"view": str(view or "semantic").strip().lower() or "semantic", "nodes": [], "edges": []}
+            if normalized_view != "semantic":
+                return {"view": normalized_view, "nodes": [], "edges": []}
+            graph = self._build_semantic_graph(
+                source_version_pairs=[],
+                visible_sources=[],
+                source_name_by_id={},
+                visible_source_version_keys=set(),
+                density=density,
+            )
+            visible_node_ids = {str(node["id"]) for node in graph["nodes"]}
+            return {
+                "view": normalized_view,
+                "nodes": graph["nodes"],
+                "edges": self._prune_dangling_edges(graph["edges"], node_ids=visible_node_ids),
+            }
         source_version_pairs = [
             pair for pair in source_version_pairs if str(pair["source_id"]) in set(visible_source_ids)
         ]
@@ -54,7 +83,6 @@ class GraphService:
             for pair in source_version_pairs
         }
         source_name_by_id = {str(source["id"]): str(source["name"]) for source in visible_sources}
-        normalized_view = str(view or "semantic").strip().lower() or "semantic"
         if normalized_view == "semantic":
             graph = self._build_semantic_graph(
                 source_version_pairs=source_version_pairs,
@@ -171,6 +199,11 @@ class GraphService:
             for edge in kept_edges
             for node_id in (str(edge["source"]), str(edge["target"]))
         }
+        kept_entity_node_ids.update(
+            build_entity_node_id(str(entity["id"]))
+            for entity in entity_rows
+            if bool(dict(entity.get("metadata") or {}).get("manual_created"))
+        )
         provenance_edges: list[dict[str, Any]] = []
         seen_provenance_edge_ids: set[str] = set()
         connected_source_node_ids: set[str] = set()
@@ -618,9 +651,9 @@ class GraphService:
             if not bool(metadata.get("manual_created")):
                 continue
             entity_scope_key = self._node_source_scope(build_entity_node_id(str(entity["id"])))
-            if entity_scope_key in {MULTIPLE_SOURCE_SCOPE, None}:
+            if entity_scope_key == MULTIPLE_SOURCE_SCOPE:
                 continue
-            if entity_scope_key not in visible_source_version_keys:
+            if entity_scope_key is not None and entity_scope_key not in visible_source_version_keys:
                 continue
             manual_entity_rows.append(entity)
         return manual_entity_rows
@@ -966,28 +999,30 @@ class GraphService:
             raise ValueError("实体名称不能为空。")
         normalized_source_id = str(source_id or "").strip() or None
         normalized_version_id = str(version_id or "").strip() or None
+        entity_metadata = dict(metadata or {})
+        entity_metadata.pop("source_id", None)
+        entity_metadata.pop("version_id", None)
         if normalized_version_id and not normalized_source_id:
             raise ValueError("指定快照前必须先选择来源。")
-        if normalized_source_id is None:
-            raise ValueError("请先选择单一来源快照，再创建手工实体。")
-        if self.source_store.get_source(normalized_source_id) is None:
-            raise ValueError("手工实体关联的来源不存在。")
-        if normalized_version_id is None:
-            normalized_version_id = self.source_store.resolve_latest_active_version_id(normalized_source_id)
-        if normalized_version_id is None:
-            raise ValueError("当前来源还没有可用快照，无法创建手工实体。")
-        if self.source_store.get_source_version(normalized_source_id, normalized_version_id) is None:
-            raise ValueError("手工实体关联的快照不存在。")
+        if normalized_source_id is not None:
+            if self.source_store.get_source(normalized_source_id) is None:
+                raise ValueError("手工实体关联的来源不存在。")
+            if normalized_version_id is None:
+                normalized_version_id = self.source_store.resolve_latest_active_version_id(normalized_source_id)
+            if normalized_version_id is None:
+                raise ValueError("当前来源还没有可用快照，无法创建手工实体。")
+            if self.source_store.get_source_version(normalized_source_id, normalized_version_id) is None:
+                raise ValueError("手工实体关联的快照不存在。")
+            entity_metadata["source_id"] = normalized_source_id
+            entity_metadata["version_id"] = normalized_version_id
 
         entity = self.graph_store.create_entity(
             display_name=normalized_label,
             description=description,
             metadata={
-                **dict(metadata or {}),
+                **entity_metadata,
                 "entity_kind": "manual_entity",
                 "manual_created": True,
-                "source_id": normalized_source_id,
-                "version_id": normalized_version_id,
             },
             appearance_count=0,
         )
@@ -1426,8 +1461,6 @@ class GraphService:
     def _paragraph_label(self, content: str) -> str:
         compact = " ".join(content.split())
         return compact if len(compact) <= 28 else f"{compact[:28]}..."
-
-
 
 
 

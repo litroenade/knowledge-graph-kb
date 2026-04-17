@@ -8,6 +8,7 @@ from src.kb.importing.evidence import (
     build_paragraph_render_payload,
     build_worksheet_preview_payload,
 )
+from src.kb.application.retrieval.types import KBScope
 from src.kb.importing.excel import normalize_column_name, normalize_sheet_name
 from src.kb.storage import RecordStore, SourceStore
 from src.utils.logger import get_logger
@@ -24,8 +25,29 @@ class SourceService:
         self.source_store = source_store
         self.record_store = record_store
 
-    def list_sources(self, *, keyword: str | None = None, limit: int = 100) -> list[dict[str, Any]]:
-        rows = self.source_store.list_sources(limit=limit, keyword=keyword)
+    def list_sources(
+        self,
+        *,
+        keyword: str | None = None,
+        limit: int = 100,
+        scope: dict[str, Any] | None = None,
+    ) -> list[dict[str, Any]]:
+        normalized_scope = KBScope.from_payload(scope) if scope is not None else None
+        if normalized_scope is None or (
+            normalized_scope.mode == "all"
+            and normalized_scope.version_mode == "latest"
+            and not normalized_scope.excluded_source_ids
+        ):
+            rows = self.source_store.list_sources(limit=limit, keyword=keyword)
+            return [self._serialize_source(row) for row in rows]
+
+        rows = self.source_store.list_sources(limit=None, keyword=keyword)
+        visible_source_ids = {
+            str(item["source_id"])
+            for item in self.source_store.resolve_scope_pairs(normalized_scope)
+        }
+        filtered_rows = [row for row in rows if str(row["id"]) in visible_source_ids]
+        rows = filtered_rows[:limit]
         return [self._serialize_source(row) for row in rows]
 
     def update_source(

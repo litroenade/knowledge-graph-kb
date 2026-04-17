@@ -25,10 +25,11 @@ describe('WorkspaceOverview', () => {
   it('shows semantic scope counts in graph semantic workspace', () => {
     render(<WorkspaceOverview collapsed={false} />);
 
-    expect(screen.getByText('范围实体')).toBeInTheDocument();
-    expect(screen.getByText('语义关系')).toBeInTheDocument();
+    expect(screen.getByText('图谱范围实体')).toBeInTheDocument();
+    expect(screen.getByText('图谱范围关系')).toBeInTheDocument();
     expect(screen.getByText('88')).toBeInTheDocument();
     expect(screen.getByText('102')).toBeInTheDocument();
+    expect(screen.getByText('当前来源范围')).toBeInTheDocument();
     expect(screen.queryByText('范围节点')).not.toBeInTheDocument();
     expect(screen.queryByText('范围关系')).not.toBeInTheDocument();
   });

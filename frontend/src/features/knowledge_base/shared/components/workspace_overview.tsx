@@ -3,6 +3,7 @@ import { use_workspace_shell } from '../hooks/use_workspace_shell';
 
 interface WorkspaceOverviewProps {
   collapsed: boolean;
+  on_toggle_sidebar?: () => void;
 }
 
 const TAB_ICONS = {
@@ -12,7 +13,7 @@ const TAB_ICONS = {
 } as const;
 
 export function WorkspaceOverview(props: WorkspaceOverviewProps) {
-  const { collapsed } = props;
+  const { collapsed, on_toggle_sidebar } = props;
   const {
     active_workspace,
     set_active_workspace,
@@ -32,9 +33,9 @@ export function WorkspaceOverview(props: WorkspaceOverviewProps) {
   }
 
   const is_semantic_graph_workspace = active_workspace === 'graph' && graph_data_view === 'semantic';
-  const scope_node_label = is_semantic_graph_workspace ? '范围实体' : '范围节点';
+  const scope_node_label = is_semantic_graph_workspace ? '图谱范围实体' : '图谱范围节点';
   const scope_node_value = is_semantic_graph_workspace ? semantic_scope_entity_count : node_count;
-  const scope_edge_label = is_semantic_graph_workspace ? '语义关系' : '范围关系';
+  const scope_edge_label = is_semantic_graph_workspace ? '图谱范围关系' : '图谱范围边';
   const scope_edge_value = is_semantic_graph_workspace ? semantic_scope_relation_count : edge_count;
 
   return (
@@ -48,6 +49,16 @@ export function WorkspaceOverview(props: WorkspaceOverviewProps) {
           <strong>知识库工作区</strong>
           <p>在同一工作区中切换问答、导入和图谱，并保留跨面板的上下文。</p>
         </div>
+        {on_toggle_sidebar ? (
+          <button
+            aria-label='收起侧边栏'
+            className='kb-sidebar-toggle kb-sidebar-toggle-inline'
+            onClick={on_toggle_sidebar}
+            type='button'
+          >
+            <span>{'<'}</span>
+          </button>
+        ) : null}
       </div>
 
       <div className='kb-sidebar-mini-stats'>
@@ -71,7 +82,7 @@ export function WorkspaceOverview(props: WorkspaceOverviewProps) {
 
       <div className='kb-sidebar-context-grid'>
         <div className='kb-context-card'>
-          <span className='kb-context-label'>当前范围</span>
+          <span className='kb-context-label'>当前来源范围</span>
           <strong>{selected_source_summary}</strong>
         </div>
         {active_workspace !== 'graph' ? (

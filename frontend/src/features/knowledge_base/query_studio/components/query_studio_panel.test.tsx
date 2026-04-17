@@ -191,4 +191,29 @@ describe('QueryStudioPanel', () => {
       highlighted_columns: ['zhi'],
     });
   });
+
+  it('submits quick-upload files with the auto strategy and switches to import workspace', async () => {
+    const ui = create_ui_slice_fixture({ query_mode: 'answer' });
+    const upload_files = vi.fn(async () => {});
+
+    use_workspace_ui_context_mock.mockReturnValue(ui);
+    use_workspace_import_context_mock.mockReturnValue(create_import_slice_fixture({ upload_files }));
+    use_query_studio_mock.mockReturnValue({
+      query_mode: ui.query_mode,
+      set_query_mode: ui.set_query_mode,
+      ...create_query_slice_fixture(),
+    });
+
+    const { container } = render(<QueryStudioPanel />);
+    const file_input = container.querySelector('input[type="file"]') as HTMLInputElement | null;
+    expect(file_input).not.toBeNull();
+
+    const file = new File(['alpha'], 'alpha.txt', { type: 'text/plain' });
+    fireEvent.change(file_input!, { target: { files: [file] } });
+
+    await waitFor(() => {
+      expect(upload_files).toHaveBeenCalledWith([expect.any(File)], 'auto');
+    });
+    expect(ui.set_active_workspace).toHaveBeenCalledWith('import');
+  });
 });

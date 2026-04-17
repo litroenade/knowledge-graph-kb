@@ -21,7 +21,7 @@ from src.kb.importing.excel import (
     workbook_stem_from_sidecar,
 )
 from src.kb.importing.payloads import build_structured_import_item, build_text_import_item
-from src.kb.importing.strategy import select_strategy, split_text_by_strategy
+from src.kb.importing.strategy import normalize_strategy, select_strategy, split_text_by_strategy
 from src.kb.providers import OpenAiGateway
 from src.kb.storage import (
     GraphStore,
@@ -1072,12 +1072,18 @@ class ImportExecutor:
         had_success = False
         try:
             logger.info("导入任务开始执行：job_id=%s file_count=%s", job_id, len(file_rows))
+            latest_job_row = self.job_store.get_job(job_id)
+            next_status = (
+                "cancelling"
+                if str((latest_job_row or {}).get("status") or "") == "cancelling"
+                else "running"
+            )
             self.job_store.update_job(
                 job_id,
-                status="running",
+                status=next_status,
                 current_step="preparing",
                 started_at=utc_now_iso(),
-                message="开始执行导入任务",
+                message="开始执行导入任务" if next_status == "running" else "已请求取消，等待当前步骤收敛。",
             )
             for file_index, (file_row, item) in enumerate(zip(file_rows, items, strict=True)):
                 file_id = str(file_row["id"])
@@ -1113,14 +1119,15 @@ class ImportExecutor:
                     )
                 except ImportCancelledError as exc:
                     logger.warning("导入任务在处理文件时被取消：job_id=%s file_id=%s", job_id, file_id)
-                    self._mark_file_cancelled(file_id=file_id, job_id=job_id, error_message=str(exc))
+                    self._mark_remaining_job_items_cancelled(job_id=job_id, error_message=str(exc))
+                    self.job_store.refresh_job_counters(job_id)
                     self.job_store.update_job(
                         job_id,
                         status="cancelled",
                         current_step="cancelled",
                         finished_at=utc_now_iso(),
                         message="导入任务已取消",
-                        error=str(exc),
+                        error=None,
                     )
                     return
                 except Exception as exc:  # noqa: BLE001
@@ -1192,8 +1199,19 @@ class ImportExecutor:
                 had_success,
             )
         finally:
-            if not had_success and cancellation_event.is_set():
-                self.job_store.update_job(job_id, status="cancelled", current_step="cancelled", finished_at=utc_now_iso())
+            latest_job_row = self.job_store.get_job(job_id)
+            latest_status = str((latest_job_row or {}).get("status") or "")
+            if cancellation_event.is_set() and latest_status in {"queued", "running", "cancelling"}:
+                self._mark_remaining_job_items_cancelled(job_id=job_id, error_message="导入任务已取消。")
+                self.job_store.refresh_job_counters(job_id)
+                self.job_store.update_job(
+                    job_id,
+                    status="cancelled",
+                    current_step="cancelled",
+                    finished_at=utc_now_iso(),
+                    message="导入任务已取消",
+                    error=None,
+                )
             with self._lock:
                 self._threads.pop(job_id, None)
                 self._cancellations.pop(job_id, None)
@@ -1231,10 +1249,16 @@ class ImportExecutor:
                     "progress_step": current_step,
                 },
             )
+        job_row = self.job_store.get_job(job_id)
+        if job_row is None:
+            return
+        job_status = str(job_row.get("status") or "")
+        if job_status in {"completed", "ready", "partial", "failed", "cancelled", "aborted"}:
+            return
         overall_progress = round(((file_index + file_progress / 100.0) / max(total_files, 1)) * 100.0, 2)
         self.job_store.update_job(
             job_id,
-            status="running",
+            status="cancelling" if job_status == "cancelling" else "running",
             current_step=current_step,
             progress=overall_progress,
             message=message,
@@ -1256,11 +1280,25 @@ class ImportExecutor:
             error=error_message,
         )
         for chunk_row in self.job_store.list_job_chunks(job_id, file_id):
+            chunk_status = str(chunk_row.get("status") or "")
+            if chunk_status in {"completed", "failed", "partial", "cancelled", "aborted"}:
+                continue
             self.job_store.update_job_chunk(
                 str(chunk_row["id"]),
                 status="cancelled",
                 step="cancelled",
                 error=error_message,
+            )
+
+    def _mark_remaining_job_items_cancelled(self, *, job_id: str, error_message: str) -> None:
+        for file_row in self.job_store.list_job_files(job_id):
+            file_status = str(file_row.get("status") or "")
+            if file_status in {"completed", "failed", "partial", "cancelled", "aborted"}:
+                continue
+            self._mark_file_cancelled(
+                file_id=str(file_row["id"]),
+                job_id=job_id,
+                error_message=error_message,
             )
 
 
@@ -1590,13 +1628,15 @@ class ImportService:
         job = self.job_store.get_job(job_id)
         if job is None:
             return None
+        if str(job.get("status") or "") in {"completed", "ready", "partial", "failed", "cancelled", "aborted"}:
+            return self.job_store.hydrate_job(job)
         self.executor.cancel(job_id)
         updated_job = self.job_store.update_job(
             job_id,
-            status="cancelled",
-            current_step="cancelled",
-            finished_at=utc_now_iso(),
-            message="导入任务已取消。",
+            status="cancelling",
+            current_step="cancelling",
+            message="已请求取消，等待当前步骤收敛。",
+            error=None,
         )
         return self.job_store.hydrate_job(updated_job) if updated_job is not None else None
 
@@ -1658,11 +1698,12 @@ class ImportService:
 
         if not items:
             raise ValueError("当前操作没有生成可导入的数据项。")
+        normalized_strategy = normalize_strategy(strategy)
         job = self.job_store.create_job(
             source=source,
             input_mode=input_mode,
-            strategy=strategy,
-            params={"source": source, "input_mode": input_mode, "strategy": strategy},
+            strategy=normalized_strategy,
+            params={"source": source, "input_mode": input_mode, "strategy": normalized_strategy},
             total_files=len(items),
         )
         logger.info(
@@ -1670,7 +1711,7 @@ class ImportService:
             str(job["id"]),
             source,
             input_mode,
-            strategy,
+            normalized_strategy,
             len(items),
         )
         for item in items:
@@ -1679,7 +1720,7 @@ class ImportService:
                 name=str(item["name"]),
                 source_kind=str(item["source_kind"]),
                 input_mode=str(item["input_mode"]),
-                strategy=strategy,
+                strategy=normalized_strategy,
                 storage_path=item.get("storage_path"),
                 metadata={**dict(item.get("metadata", {})), "retry_payload": item},
             )
@@ -1928,5 +1969,3 @@ def _merge_extraction_results(partial_results: list[dict[str, Any]]) -> dict[str
         "entities": list(entity_map.values()),
         "relations": list(relation_map.values()),
     }
-
-

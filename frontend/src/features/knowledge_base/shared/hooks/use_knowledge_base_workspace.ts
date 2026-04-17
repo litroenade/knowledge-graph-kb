@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 
 import { use_graph_workspace_state } from './workspace_store/use_graph_workspace_state';
 import { use_import_workspace_state } from './workspace_store/use_import_workspace_state';
@@ -7,14 +7,24 @@ import { use_query_workspace_state } from './workspace_store/use_query_workspace
 import { use_source_workspace_state } from './workspace_store/use_source_workspace_state';
 import { use_workspace_focus_actions } from './workspace_store/use_workspace_focus_actions';
 import { use_workspace_ui_state } from './workspace_store/use_workspace_ui_state';
+import type { KBScopeRecord } from '../types/knowledge_base_types';
 
 const DEFAULT_GRAPH_DENSITY = 100;
+const DEFAULT_BROWSER_SCOPE: KBScopeRecord = {
+  mode: 'all' as const,
+  source_ids: [],
+  version_mode: 'latest' as const,
+  version_id: null,
+  excluded_source_ids: [],
+};
 
 export function use_knowledge_base_workspace_slices() {
   const ui = use_workspace_ui_state();
+  const [source_browser_scope, set_source_browser_scope] = useState<KBScopeRecord>(DEFAULT_BROWSER_SCOPE);
   const source = use_source_workspace_state({
     active_workspace: ui.active_workspace,
     is_source_library_open: ui.is_source_library_open,
+    browser_scope: source_browser_scope,
     set_message: ui.set_message,
     set_error: ui.set_error,
   });
@@ -65,6 +75,21 @@ export function use_knowledge_base_workspace_slices() {
     set_density: graph.set_density,
     set_graph_focus_command: graph.set_graph_focus_command,
   });
+
+  useEffect(() => {
+    set_source_browser_scope((current_scope) => {
+      if (
+        current_scope.mode === query.current_scope.mode &&
+        current_scope.version_mode === query.current_scope.version_mode &&
+        (current_scope.version_id ?? null) === (query.current_scope.version_id ?? null) &&
+        current_scope.source_ids.join('|') === query.current_scope.source_ids.join('|') &&
+        current_scope.excluded_source_ids.join('|') === query.current_scope.excluded_source_ids.join('|')
+      ) {
+        return current_scope;
+      }
+      return query.current_scope;
+    });
+  }, [query.current_scope]);
 
   return useMemo(
     () => ({

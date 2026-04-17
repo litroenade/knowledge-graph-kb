@@ -108,18 +108,20 @@ export const MODEL_PROVIDER_BASE_URLS: Record<ModelProvider, string> = {
 
 export const TASK_STATUS_ORDER: Record<string, number> = {
   running: 0,
-  queued: 1,
-  ready: 2,
-  partial: 3,
-  failed: 4,
+  cancelling: 1,
+  queued: 2,
+  ready: 3,
+  completed: 3,
+  partial: 4,
+  failed: 5,
 };
 
 const IMPORT_MODE_LABELS: Record<string, string> = {
   upload: '上传文件',
   paste: '粘贴文本',
   scan: '扫描目录',
-  openie: '开放抽取',
-  convert: '格式转换',
+  openie: 'OpenIE 导入',
+  convert: '转换导入',
   text: '文本',
   file: '文件',
 };
@@ -127,18 +129,22 @@ const IMPORT_MODE_LABELS: Record<string, string> = {
 const STATUS_LABELS: Record<string, string> = {
   queued: '排队中',
   running: '处理中',
+  cancelling: '取消中',
   ready: '已完成',
+  completed: '已完成',
   partial: '部分完成',
   failed: '失败',
   idle: '未开始',
 };
 
 const STRATEGY_LABELS: Record<string, string> = {
-  factual: '事实抽取',
-  summary: '摘要抽取',
-  semantic: '语义抽取',
-  hybrid: '混合策略',
   auto: '自动策略',
+  factual: '事实抽取',
+  narrative: '叙事抽取',
+  quote: '引用抽取',
+  summary: '自动策略',
+  semantic: '自动策略',
+  hybrid: '自动策略',
 };
 
 const VECTOR_STATE_LABELS: Record<string, string> = {

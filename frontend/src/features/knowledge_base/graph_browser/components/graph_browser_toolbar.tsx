@@ -4,8 +4,6 @@ import type { GraphViewMode } from '../../shared/types/knowledge_base_types';
 import type { GraphSearchCandidateRecord } from './graph_browser_utils';
 
 interface GraphBrowserToolbarProps {
-  source_scope_label: string;
-  visible_summary_label: string;
   graph_view_mode: GraphViewMode;
   can_enter_local_graph: boolean;
   has_focus_target: boolean;
@@ -36,8 +34,6 @@ interface GraphBrowserToolbarProps {
 
 export function GraphBrowserToolbar(props: GraphBrowserToolbarProps) {
   const {
-    source_scope_label,
-    visible_summary_label,
     graph_view_mode,
     can_enter_local_graph,
     has_focus_target,
@@ -80,46 +76,6 @@ export function GraphBrowserToolbar(props: GraphBrowserToolbarProps) {
 
   return (
     <section className='kb-graph-toolbar'>
-      <div className='kb-graph-toolbar-row is-summary'>
-        <div className='kb-graph-toolbar-copy'>
-          <span className='kb-context-label'>知识图谱</span>
-          <strong>语义主图</strong>
-          <span className='kb-helper-text'>
-            默认先阅读实体关系；证据和结构放到筛选抽屉与属性面板里下钻。
-          </span>
-
-          <div className='kb-graph-toolbar-meta'>
-            <span className='kb-meta-pill'>{source_scope_label}</span>
-            <span className='kb-meta-pill'>{visible_summary_label}</span>
-          </div>
-        </div>
-
-        <div className='kb-graph-toolbar-primary-actions'>
-          <button className='kb-secondary-button' onClick={on_open_filters} type='button'>
-            筛选与显示
-          </button>
-          <details className='kb-graph-toolbar-menu' ref={edit_actions_ref}>
-            <summary className='kb-secondary-button'>编辑图谱</summary>
-            <div className='kb-graph-toolbar-menu-panel'>
-              <button
-                className='kb-secondary-button'
-                onClick={() => run_menu_action(on_open_create_node)}
-                type='button'
-              >
-                新建实体
-              </button>
-              <button
-                className='kb-secondary-button'
-                onClick={() => run_menu_action(on_open_relation)}
-                type='button'
-              >
-                补关系
-              </button>
-            </div>
-          </details>
-        </div>
-      </div>
-
       <div className='kb-graph-toolbar-row is-controls'>
         <section className='kb-graph-toolbar-search-panel'>
           <span className='kb-graph-toolbar-group-label'>快速定位</span>
@@ -173,6 +129,34 @@ export function GraphBrowserToolbar(props: GraphBrowserToolbarProps) {
         <section className='kb-graph-toolbar-controls-panel'>
           <div className='kb-graph-toolbar-clusters'>
             <div className='kb-graph-toolbar-cluster'>
+              <span className='kb-graph-toolbar-group-label'>操作</span>
+              <div className='kb-button-row kb-graph-toolbar-button-strip'>
+                <button className='kb-secondary-button' onClick={on_open_filters} type='button'>
+                  筛选与显示
+                </button>
+                <details className='kb-graph-toolbar-menu' ref={edit_actions_ref}>
+                  <summary className='kb-secondary-button'>编辑图谱</summary>
+                  <div className='kb-graph-toolbar-menu-panel'>
+                    <button
+                      className='kb-secondary-button'
+                      onClick={() => run_menu_action(on_open_create_node)}
+                      type='button'
+                    >
+                      新建实体
+                    </button>
+                    <button
+                      className='kb-secondary-button'
+                      onClick={() => run_menu_action(on_open_relation)}
+                      type='button'
+                    >
+                      补关系
+                    </button>
+                  </div>
+                </details>
+              </div>
+            </div>
+
+            <div className='kb-graph-toolbar-cluster'>
               <span className='kb-graph-toolbar-group-label'>视图</span>
               <div className='kb-button-row kb-graph-toolbar-button-strip'>
                 <button
@@ -201,6 +185,24 @@ export function GraphBrowserToolbar(props: GraphBrowserToolbarProps) {
                 <button className='kb-secondary-button' onClick={on_fit_all} type='button'>
                   适配全图
                 </button>
+                <button
+                  aria-label='放大图谱'
+                  className='kb-secondary-button kb-graph-toolbar-icon-button'
+                  onClick={on_zoom_in}
+                  title='放大图谱'
+                  type='button'
+                >
+                  <span aria-hidden='true'>+</span>
+                </button>
+                <button
+                  aria-label='缩小图谱'
+                  className='kb-secondary-button kb-graph-toolbar-icon-button'
+                  onClick={on_zoom_out}
+                  title='缩小图谱'
+                  type='button'
+                >
+                  <span aria-hidden='true'>-</span>
+                </button>
                 <details className='kb-graph-toolbar-menu' ref={more_actions_ref}>
                   <summary className='kb-secondary-button'>更多操作</summary>
                   <div className='kb-graph-toolbar-menu-panel'>
@@ -225,20 +227,6 @@ export function GraphBrowserToolbar(props: GraphBrowserToolbarProps) {
                       type='button'
                     >
                       重新布局
-                    </button>
-                    <button
-                      className='kb-secondary-button'
-                      onClick={() => run_menu_action(on_zoom_in)}
-                      type='button'
-                    >
-                      放大
-                    </button>
-                    <button
-                      className='kb-secondary-button'
-                      onClick={() => run_menu_action(on_zoom_out)}
-                      type='button'
-                    >
-                      缩小
                     </button>
                   </div>
                 </details>

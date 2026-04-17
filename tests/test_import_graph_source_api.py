@@ -34,6 +34,23 @@ def import_named_source(client: TestClient, *, title: str, content: str) -> dict
     return response.json()["job"]
 
 
+def test_legacy_import_strategy_aliases_still_normalize_to_auto(client: TestClient) -> None:
+    response = client.post(
+        "/api/kb/imports/paste",
+        json={
+            "title": "Legacy Alias",
+            "content": "Alpha 支持 Beta。",
+            "strategy": "summary",
+            "metadata": {"filename": "legacy-alias.txt"},
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    job = response.json()["job"]
+    assert job["strategy"] == "auto"
+    assert job["status"] in {"completed", "partial"}
+
+
 def test_import_job_source_update_graph_create_and_backup(client: TestClient, tmp_path: Path) -> None:
     job = import_sample_source(client)
 

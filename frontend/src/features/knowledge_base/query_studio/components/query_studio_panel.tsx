@@ -171,7 +171,7 @@ export function QueryStudioPanel() {
     if (!files?.length) {
       return;
     }
-    await imports.upload_files(Array.from(files), 'summary');
+    await imports.upload_files(Array.from(files), 'auto');
     ui.set_active_workspace('import');
   }
 
@@ -592,6 +592,7 @@ export function QueryStudioPanel() {
       </section>
 
       <SourceLibraryDrawer
+        browser_sources={source.browser_sources}
         delete_source={source.delete_source}
         is_deleting_source={source.is_deleting_source}
         is_loading_source_worksheets={source.is_loading_source_worksheets}

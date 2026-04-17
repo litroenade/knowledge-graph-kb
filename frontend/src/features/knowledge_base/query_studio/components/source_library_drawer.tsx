@@ -9,7 +9,11 @@ import {
 } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 
-import { format_source_display_name } from '../../graph_browser/components/graph_browser_utils';
+import {
+  format_source_display_name,
+  format_source_raw_stats,
+  preferred_source_summary,
+} from '../../graph_browser/components/graph_browser_utils';
 import { ParagraphEvidencePreview } from '../../shared/components/paragraph_evidence_preview';
 import {
   get_input_mode_label,
@@ -28,7 +32,7 @@ import type {
 import { WorksheetPreviewTable } from './worksheet_preview_table';
 
 function source_summary(source: SourceRecord): string {
-  return source.summary || get_input_mode_label(source.source_kind) || '暂无摘要';
+  return preferred_source_summary(source, get_input_mode_label(source.source_kind) || '暂无摘要');
 }
 
 function is_source_in_scope(source_id: string, selected_source_ids: string[]): boolean {
@@ -57,6 +61,7 @@ function worksheet_page_label(preview: WorksheetPreviewRecord | null): string | 
 interface SourceLibraryDrawerProps {
   open: boolean;
   sources: SourceRecord[];
+  browser_sources: SourceRecord[];
   selected_source_ids: string[];
   set_selected_source_ids: Dispatch<SetStateAction<string[]>>;
   selected_source_browser_id: string | null;
@@ -95,6 +100,7 @@ export function SourceLibraryDrawer(props: SourceLibraryDrawerProps) {
   const {
     open,
     sources,
+    browser_sources,
     selected_source_ids,
     set_selected_source_ids,
     selected_source_browser_id,
@@ -136,7 +142,7 @@ export function SourceLibraryDrawer(props: SourceLibraryDrawerProps) {
 
   const filtered_sources = useMemo(
     () =>
-      sources.filter((source) => {
+      browser_sources.filter((source) => {
         if (!deferred_source_keyword) {
           return true;
         }
@@ -144,7 +150,7 @@ export function SourceLibraryDrawer(props: SourceLibraryDrawerProps) {
           `${source.name} ${source.summary ?? ''} ${source.source_kind} ${source.input_mode}`.toLowerCase();
         return haystack.includes(deferred_source_keyword);
       }),
-    [deferred_source_keyword, sources],
+    [browser_sources, deferred_source_keyword],
   );
 
   const filtered_paragraphs = useMemo(
@@ -177,7 +183,7 @@ export function SourceLibraryDrawer(props: SourceLibraryDrawerProps) {
 
   useEffect(() => {
     set_name_draft(active_source?.name ?? '');
-    set_summary_draft(active_source?.summary ?? '');
+    set_summary_draft(active_source ? preferred_source_summary(active_source, '') : '');
   }, [active_source]);
 
   if (!open) {
@@ -246,7 +252,7 @@ export function SourceLibraryDrawer(props: SourceLibraryDrawerProps) {
                       type='button'
                     >
                       <strong>{format_source_display_name(source, sources)}</strong>
-                      <span>{source_summary(source)}</span>
+                      <span>{format_source_raw_stats(source) ?? source_summary(source)}</span>
                     </button>
 
                     <div className='kb-meta-strip'>
@@ -297,15 +303,18 @@ export function SourceLibraryDrawer(props: SourceLibraryDrawerProps) {
                   : '选中来源后，这里会显示来源摘要、快照和工作表预览。'}
               </p>
               {source_detail ? (
-                <div className='kb-meta-strip'>
-                  <span className='kb-meta-pill'>
-                    {source_detail.selected_version
-                      ? format_version_label(source_detail.selected_version)
-                      : '未选择快照'}
-                  </span>
-                  <span className='kb-meta-pill'>{`段落 ${source_detail.paragraph_count}`}</span>
-                  <span className='kb-meta-pill'>{`实体 ${source_detail.entity_count}`}</span>
-                  <span className='kb-meta-pill'>{`关系 ${source_detail.relation_count}`}</span>
+                <div className='kb-source-detail-stats'>
+                  <span className='kb-context-label'>来源原始统计</span>
+                  <div className='kb-meta-strip'>
+                    <span className='kb-meta-pill'>
+                      {source_detail.selected_version
+                        ? format_version_label(source_detail.selected_version)
+                        : '未选择快照'}
+                    </span>
+                    <span className='kb-meta-pill'>{`段落 ${source_detail.paragraph_count}`}</span>
+                    <span className='kb-meta-pill'>{`实体 ${source_detail.entity_count}`}</span>
+                    <span className='kb-meta-pill'>{`关系 ${source_detail.relation_count}`}</span>
+                  </div>
                 </div>
               ) : null}
 

@@ -1,6 +1,7 @@
 import {
   useEffect,
   useMemo,
+  useState,
   type FocusEvent,
   type FormEvent,
   type KeyboardEvent,
@@ -39,6 +40,8 @@ import '../styles/graph_browser_panel.css';
 interface GraphBrowserPanelProps {
   resolved_theme: ResolvedTheme;
 }
+
+type CreateEntityScopeMode = 'global' | 'source';
 
 function normalize_keyword(value: string): string {
   return value.trim().toLowerCase();
@@ -340,7 +343,22 @@ export function GraphBrowserPanel(props: GraphBrowserPanelProps) {
     () => selected_source_summary(selected_source_ids, sources),
     [selected_source_ids, sources],
   );
+  const single_selected_source_id = selected_source_ids.length === 1 ? selected_source_ids[0] : null;
+  const single_selected_source = useMemo(
+    () => sources.find((source) => source.id === single_selected_source_id) ?? null,
+    [single_selected_source_id, sources],
+  );
+  const can_bind_entity_to_source = Boolean(single_selected_source_id);
+  const default_create_scope_mode: CreateEntityScopeMode = can_bind_entity_to_source ? 'source' : 'global';
+  const [create_scope_mode, set_create_scope_mode] = useState<CreateEntityScopeMode>(default_create_scope_mode);
   const layer_summary_label = GRAPH_DATA_VIEW_LABELS[graph_data_view];
+
+  useEffect(() => {
+    if (left_drawer_mode !== 'create-node') {
+      return;
+    }
+    set_create_scope_mode(default_create_scope_mode);
+  }, [default_create_scope_mode, left_drawer_mode]);
 
   const projected_graph = useMemo(
     () =>
@@ -568,18 +586,35 @@ export function GraphBrowserPanel(props: GraphBrowserPanelProps) {
           : reading_mode === 'reading'
             ? '\u5168\u5c40\u9605\u8bfb'
             : '\u5168\u5c40\u6d4f\u89c8';
-  const visible_summary_label = [
-    `当前可见: ${projected_graph.summary.visible_entity_count} 实体`,
-    `${projected_graph.summary.visible_semantic_edge_count} 语义关系`,
-    projected_graph.summary.visible_source_anchor_count
-      ? `${projected_graph.summary.visible_source_anchor_count} 来源锚点`
-      : null,
-    projected_graph.summary.visible_provenance_edge_count
-      ? `${projected_graph.summary.visible_provenance_edge_count} 来源连接`
-      : null,
-  ]
-    .filter(Boolean)
-    .join(' / ');
+  const graph_scope_summary_label = useMemo(() => {
+    if (graph_data_view === 'semantic') {
+      const entity_count = graph.nodes.filter(
+        (node) => (node.family ?? 'semantic') === 'semantic' && node.type === 'entity',
+      ).length;
+      const relation_count = graph.edges.filter(
+        (edge) => (edge.family ?? 'semantic') === 'semantic' && edge.type !== 'provenance',
+      ).length;
+      return `${entity_count} 实体 / ${relation_count} 关系`;
+    }
+    return `${graph.nodes.length} 节点 / ${graph.edges.length} 边`;
+  }, [graph.edges, graph.nodes, graph_data_view]);
+  const visible_graph_summary_label = useMemo(() => {
+    if (graph_data_view === 'semantic') {
+      return [
+        `${projected_graph.summary.visible_entity_count} 实体`,
+        `${projected_graph.summary.visible_semantic_edge_count} 关系`,
+        projected_graph.summary.visible_source_anchor_count
+          ? `${projected_graph.summary.visible_source_anchor_count} 锚点`
+          : null,
+        projected_graph.summary.visible_provenance_edge_count
+          ? `${projected_graph.summary.visible_provenance_edge_count} 连接`
+          : null,
+      ]
+        .filter(Boolean)
+        .join(' / ');
+    }
+    return `${projected_graph.summary.visible_node_count} 节点 / ${projected_graph.summary.visible_edge_count} 边`;
+  }, [graph_data_view, projected_graph.summary]);
   const selected_edge_source_label = selected_edge
     ? edge_node_label(selected_edge.source, node_map)
     : '';
@@ -786,17 +821,20 @@ export function GraphBrowserPanel(props: GraphBrowserPanelProps) {
       return;
     }
     const description = create_description.trim();
-    const scoped_source_id = selected_source_ids.length === 1 ? selected_source_ids[0] : null;
+    const scoped_source_id = create_scope_mode === 'source' ? single_selected_source_id : null;
+    if (create_scope_mode === 'source' && !scoped_source_id) {
+      return;
+    }
     await create_entity(label, {
       description: description || undefined,
       source_id: scoped_source_id,
       metadata: {
         ...(description ? { description } : {}),
-        ...(scoped_source_id ? { source_id: scoped_source_id } : {}),
       },
     });
     set_create_label('');
     set_create_description('');
+    set_create_scope_mode(default_create_scope_mode);
   }
 
   async function handle_create_relation(event: FormEvent<HTMLFormElement>): Promise<void> {
@@ -949,8 +987,6 @@ export function GraphBrowserPanel(props: GraphBrowserPanelProps) {
         on_zoom_out={() => request_viewport('zoom-out')}
         search_results_visible={search_results_visible}
         search_shell_ref={search_shell_ref}
-        source_scope_label={source_scope_label}
-        visible_summary_label={visible_summary_label}
       />
 
       {graph_error_message ? <div className='kb-graph-error-banner'>{graph_error_message}</div> : null}
@@ -964,7 +1000,9 @@ export function GraphBrowserPanel(props: GraphBrowserPanelProps) {
                 <GraphBrowserFiltersDrawer
                   density={density}
                   filtered_sources={filtered_sources}
+                  graph_scope_summary={graph_scope_summary_label}
                   graph_data_view={graph_data_view}
+                  visible_graph_summary={visible_graph_summary_label}
                   on_clear_source_filters={clear_source_filters}
                   on_close={close_left_drawer}
                   on_reset_graph_filters={reset_graph_filters}
@@ -981,13 +1019,17 @@ export function GraphBrowserPanel(props: GraphBrowserPanelProps) {
 
               {left_drawer_mode === 'create-node' ? (
                 <GraphBrowserEntityDrawer
+                  can_bind_to_source={can_bind_entity_to_source}
                   create_description={create_description}
                   create_label={create_label}
+                  create_scope_mode={create_scope_mode}
                   is_creating_node={is_creating_node}
                   on_close={close_left_drawer}
                   on_create_description_change={set_create_description}
                   on_create_label_change={set_create_label}
+                  on_create_scope_mode_change={set_create_scope_mode}
                   on_submit={(event) => void handle_create_entity(event)}
+                  selected_source_name={single_selected_source?.name ?? null}
                 />
               ) : null}
 

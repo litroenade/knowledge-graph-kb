@@ -7,6 +7,11 @@ from src.config import Settings
 from src.kb.importing.chunking import count_tokens, split_text
 
 VALID_IMPORT_STRATEGIES: set[str] = {"auto", "narrative", "factual", "quote"}
+LEGACY_IMPORT_STRATEGY_ALIASES: dict[str, str] = {
+    "summary": "auto",
+    "semantic": "auto",
+    "hybrid": "auto",
+}
 SPREADSHEET_EXTENSIONS: set[str] = {".xlsx", ".xlsm", ".xls"}
 QUOTE_LINE_SPLIT_PATTERN = re.compile(r"\n+")
 FACTUAL_HINT_PATTERN = re.compile(r"(^|\n)\s*(\d+[\.)]|[-*]\s+)")
@@ -17,6 +22,7 @@ def normalize_strategy(value: str | None) -> str:
     """归一化分块策略，并限制在支持范围内。"""
 
     strategy: str = str(value or "auto").strip().lower()
+    strategy = LEGACY_IMPORT_STRATEGY_ALIASES.get(strategy, strategy)
     if strategy not in VALID_IMPORT_STRATEGIES:
         return "auto"
     return strategy
