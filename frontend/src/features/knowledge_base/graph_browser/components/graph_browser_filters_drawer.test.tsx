@@ -5,7 +5,7 @@ import { create_source_record } from '../../shared/test_helpers/workspace_slice_
 import { GraphBrowserFiltersDrawer } from './graph_browser_filters_drawer';
 
 describe('GraphBrowserFiltersDrawer', () => {
-  it('separates graph scope, visible canvas counts, and source raw stats', () => {
+  it('separates scoped totals, projected visibility, and labeled import stats', () => {
     const source = create_source_record({
       id: 'source-1',
       name: '刷机知识.txt',
@@ -38,11 +38,11 @@ describe('GraphBrowserFiltersDrawer', () => {
       />,
     );
 
-    expect(screen.getByText('当前图谱范围')).toBeInTheDocument();
+    expect(screen.getByText('范围总量')).toBeInTheDocument();
     expect(screen.getByText('345 实体 / 431 关系')).toBeInTheDocument();
-    expect(screen.getByText('当前画布可见')).toBeInTheDocument();
+    expect(screen.getByText('投影后可见')).toBeInTheDocument();
     expect(screen.getByText('287 实体 / 389 关系 / 1 锚点 / 53 连接')).toBeInTheDocument();
-    expect(screen.getByText('段落 136 / 实体 458 / 关系 571')).toBeInTheDocument();
+    expect(screen.getByText('导入统计 · 段落 136 / 实体 458 / 关系 571')).toBeInTheDocument();
     expect(screen.queryByText('136 paragraphs, 458 entities, 571 relations')).not.toBeInTheDocument();
   });
 });

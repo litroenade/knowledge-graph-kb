@@ -11,7 +11,7 @@ import { useVirtualizer } from '@tanstack/react-virtual';
 
 import {
   format_source_display_name,
-  format_source_raw_stats,
+  format_labeled_source_raw_stats,
   preferred_source_summary,
 } from '../../graph_browser/components/graph_browser_utils';
 import { ParagraphEvidencePreview } from '../../shared/components/paragraph_evidence_preview';
@@ -252,7 +252,7 @@ export function SourceLibraryDrawer(props: SourceLibraryDrawerProps) {
                       type='button'
                     >
                       <strong>{format_source_display_name(source, sources)}</strong>
-                      <span>{format_source_raw_stats(source) ?? source_summary(source)}</span>
+                      <span>{format_labeled_source_raw_stats(source, '最新导入统计') ?? source_summary(source)}</span>
                     </button>
 
                     <div className='kb-meta-strip'>
@@ -304,7 +304,7 @@ export function SourceLibraryDrawer(props: SourceLibraryDrawerProps) {
               </p>
               {source_detail ? (
                 <div className='kb-source-detail-stats'>
-                  <span className='kb-context-label'>来源原始统计</span>
+                  <span className='kb-context-label'>当前快照统计</span>
                   <div className='kb-meta-strip'>
                     <span className='kb-meta-pill'>
                       {source_detail.selected_version

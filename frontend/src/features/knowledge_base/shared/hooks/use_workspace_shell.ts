@@ -40,6 +40,25 @@ export function use_workspace_shell() {
   ).length;
   const semantic_scope_source_anchor_count = graph.graph.nodes.filter((node) => is_source_context_node(node)).length;
   const semantic_scope_provenance_count = graph.graph.edges.filter((edge) => edge.type === 'provenance').length;
+  const overview_global_counts = [
+    { label: '全局来源', value: available_source_count },
+    { label: '运行中任务', value: active_task_count },
+  ];
+  const overview_graph_counts =
+    graph.graph_data_view === 'semantic'
+      ? [
+          { label: '语义实体', value: semantic_scope_entity_count },
+          { label: '语义关系', value: semantic_scope_relation_count },
+        ]
+      : graph.graph_data_view === 'evidence'
+        ? [
+            { label: '证据节点', value: graph.graph.nodes.length },
+            { label: '证据边', value: graph.graph.edges.length },
+          ]
+        : [
+            { label: '结构节点', value: graph.graph.nodes.length },
+            { label: '结构边', value: graph.graph.edges.length },
+          ];
   const selected_node_label =
     graph.graph.nodes.find((node) => node.id === graph.selected_node_id)?.display_label ??
     graph.graph.nodes.find((node) => node.id === graph.selected_node_id)?.label ??
@@ -61,6 +80,8 @@ export function use_workspace_shell() {
     error: ui.error,
     workspace_label: WORKSPACE_LABELS[ui.active_workspace],
     query_mode: ui.query_mode,
+    overview_global_counts,
+    overview_graph_counts,
     document_count: available_source_count,
     task_count: imports.tasks.length,
     active_task_count,

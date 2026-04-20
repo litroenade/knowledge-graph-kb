@@ -17,13 +17,8 @@ export function WorkspaceOverview(props: WorkspaceOverviewProps) {
   const {
     active_workspace,
     set_active_workspace,
-    document_count,
-    active_task_count,
-    node_count,
-    edge_count,
-    graph_data_view,
-    semantic_scope_entity_count,
-    semantic_scope_relation_count,
+    overview_global_counts,
+    overview_graph_counts,
     selected_source_summary,
     focus_summary,
   } = use_workspace_shell();
@@ -32,14 +27,18 @@ export function WorkspaceOverview(props: WorkspaceOverviewProps) {
     return null;
   }
 
-  const is_semantic_graph_workspace = active_workspace === 'graph' && graph_data_view === 'semantic';
-  const scope_node_label = is_semantic_graph_workspace ? '图谱范围实体' : '图谱范围节点';
-  const scope_node_value = is_semantic_graph_workspace ? semantic_scope_entity_count : node_count;
-  const scope_edge_label = is_semantic_graph_workspace ? '图谱范围关系' : '图谱范围边';
-  const scope_edge_value = is_semantic_graph_workspace ? semantic_scope_relation_count : edge_count;
-
   return (
-    <aside className='kb-overview-panel'>
+    <aside className={`kb-overview-panel ${on_toggle_sidebar ? 'has-sidebar-toggle' : ''}`}>
+      {on_toggle_sidebar ? (
+        <button
+          aria-label='收起侧边栏'
+          className='kb-sidebar-toggle kb-sidebar-toggle-panel'
+          onClick={on_toggle_sidebar}
+          type='button'
+        >
+          <span>{'<'}</span>
+        </button>
+      ) : null}
       <div className='kb-sidebar-brand'>
         <div aria-hidden='true' className='kb-sidebar-mark'>
           KB
@@ -49,35 +48,15 @@ export function WorkspaceOverview(props: WorkspaceOverviewProps) {
           <strong>知识库工作区</strong>
           <p>在同一工作区中切换问答、导入和图谱，并保留跨面板的上下文。</p>
         </div>
-        {on_toggle_sidebar ? (
-          <button
-            aria-label='收起侧边栏'
-            className='kb-sidebar-toggle kb-sidebar-toggle-inline'
-            onClick={on_toggle_sidebar}
-            type='button'
-          >
-            <span>{'<'}</span>
-          </button>
-        ) : null}
       </div>
 
       <div className='kb-sidebar-mini-stats'>
-        <div className='kb-sidebar-stat'>
-          <span>可用来源</span>
-          <strong>{document_count}</strong>
-        </div>
-        <div className='kb-sidebar-stat'>
-          <span>进行中任务</span>
-          <strong>{active_task_count}</strong>
-        </div>
-        <div className='kb-sidebar-stat'>
-          <span>{scope_node_label}</span>
-          <strong>{scope_node_value}</strong>
-        </div>
-        <div className='kb-sidebar-stat'>
-          <span>{scope_edge_label}</span>
-          <strong>{scope_edge_value}</strong>
-        </div>
+        {[...overview_global_counts, ...overview_graph_counts].map((item) => (
+          <div className='kb-sidebar-stat' key={item.label}>
+            <span>{item.label}</span>
+            <strong>{item.value}</strong>
+          </div>
+        ))}
       </div>
 
       <div className='kb-sidebar-context-grid'>

@@ -45,6 +45,8 @@ describe('ChatSourcesSection', () => {
 
     const { rerender } = render(<ChatSourcesSection citations={citations} {...callbacks} />);
 
+    expect(screen.getByText('回答引用 4 条')).toBeInTheDocument();
+
     fireEvent.click(screen.getByRole('button', { name: /显示来源/i }));
     fireEvent.click(screen.getByRole('button', { name: '下一页' }));
 

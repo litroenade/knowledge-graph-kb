@@ -53,7 +53,7 @@ export function ChatSourcesSection(props: ChatSourcesSectionProps) {
     <section className='kb-chat-sources'>
       <button className='kb-chat-sources-toggle' onClick={() => set_open((current) => !current)} type='button'>
         <strong>{open ? '收起来源' : '显示来源'}</strong>
-        <span>{`${citations.length} 条引用`}</span>
+        <span>{`回答引用 ${citations.length} 条`}</span>
       </button>
 
       {open ? (

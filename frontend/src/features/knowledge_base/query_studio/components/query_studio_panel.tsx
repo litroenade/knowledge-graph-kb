@@ -269,8 +269,8 @@ export function QueryStudioPanel() {
           <span>
             {scope_supported
               ? query.excluded_source_ids.length
-                ? `已排除 ${query.excluded_source_ids.length} 个来源`
-                : '未排除来源'
+                ? `范围排除 ${query.excluded_source_ids.length} 个来源`
+                : '范围未排除来源'
               : '当前模式使用整个知识库'}
           </span>
         </div>
@@ -447,7 +447,7 @@ export function QueryStudioPanel() {
                 <article className='kb-chat-source-card' key={item.id}>
                   <div className='kb-chat-source-head'>
                     <strong>{item.display_name}</strong>
-                    <span>{`出现 ${item.appearance_count} 次`}</span>
+                    <span>{`范围内出现 ${item.appearance_count} 次`}</span>
                   </div>
                   {item.description ? <p className='kb-chat-source-reason'>{item.description}</p> : null}
                   <div className='kb-button-row'>
@@ -524,7 +524,7 @@ export function QueryStudioPanel() {
                 <article className='kb-chat-source-card' key={item.id}>
                   <div className='kb-chat-source-head'>
                     <strong>{item.name}</strong>
-                    <span>{`段落 ${item.paragraph_count}`}</span>
+                    <span>{`范围内段落 ${item.paragraph_count}`}</span>
                   </div>
                   {item.summary ? <p className='kb-chat-source-reason'>{item.summary}</p> : null}
                   <div className='kb-chat-composer-meta'>

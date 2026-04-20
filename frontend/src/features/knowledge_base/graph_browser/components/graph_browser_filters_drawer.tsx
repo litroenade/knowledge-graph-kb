@@ -2,7 +2,7 @@
 import {
   DENSITY_PRESETS,
   format_source_display_name,
-  format_source_raw_stats,
+  format_labeled_source_raw_stats,
   preferred_source_summary,
 } from './graph_browser_utils';
 
@@ -71,17 +71,17 @@ export function GraphBrowserFiltersDrawer(props: GraphBrowserFiltersDrawerProps)
 
       <section className='kb-graph-filter-summary'>
         <div className='kb-graph-filter-stat'>
-          <span>来源范围</span>
+          <span>范围来源</span>
           <strong>{selected_scope_summary}</strong>
           <span>{source_scope_label}</span>
         </div>
         <div className='kb-graph-filter-stat'>
-          <span>当前图谱范围</span>
+          <span>范围总量</span>
           <strong>{graph_scope_summary}</strong>
           <span>{active_view_summary}</span>
         </div>
         <div className='kb-graph-filter-stat'>
-          <span>当前画布可见</span>
+          <span>投影后可见</span>
           <strong>{visible_graph_summary}</strong>
           <span>{graph_data_view === 'semantic' ? '随视图投影与聚合变化' : '随当前视图投影变化'}</span>
         </div>
@@ -101,7 +101,7 @@ export function GraphBrowserFiltersDrawer(props: GraphBrowserFiltersDrawerProps)
           <button className='kb-secondary-button' onClick={on_clear_source_filters} type='button'>
             清空来源
           </button>
-          <span className='kb-helper-text'>{`当前匹配 ${filtered_sources.length} 个来源`}</span>
+          <span className='kb-helper-text'>{`搜索命中 ${filtered_sources.length} 个来源`}</span>
         </div>
 
         <div className='kb-graph-source-list'>
@@ -115,7 +115,7 @@ export function GraphBrowserFiltersDrawer(props: GraphBrowserFiltersDrawerProps)
               <div>
                 <strong>{format_source_display_name(source, sources)}</strong>
                 <span>
-                  {format_source_raw_stats(source) ??
+                  {format_labeled_source_raw_stats(source) ??
                     preferred_source_summary(source, source.source_kind || '暂无摘要')}
                 </span>
               </div>

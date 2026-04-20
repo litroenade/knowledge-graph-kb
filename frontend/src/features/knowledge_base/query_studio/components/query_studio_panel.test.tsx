@@ -79,6 +79,7 @@ describe('QueryStudioPanel', () => {
       scope_mode: 'subset',
       current_scope: create_scope_record({ mode: 'subset', source_ids: ['source-1'] }),
       scope_source_ids: ['source-1'],
+      excluded_source_ids: ['source-2'],
       entity_results: [
         {
           id: 'entity-1',
@@ -106,10 +107,37 @@ describe('QueryStudioPanel', () => {
     expect(screen.queryByText('\u5f53\u524d\u6a21\u5f0f\u4e0d\u652f\u6301\u6765\u6e90\u8303\u56f4\u8fc7\u6ee4')).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: '\u6765\u6e90\u4e00.txt' })).toBeInTheDocument();
     expect(screen.getByText('\u652f\u5f62')).toBeInTheDocument();
+    expect(screen.getByText('范围排除 1 个来源')).toBeInTheDocument();
+    expect(screen.getByText('范围内出现 3 次')).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: '\u5728\u56fe\u8c31\u4e2d\u67e5\u770b' }));
 
     expect(focus.focus_entity).toHaveBeenCalledWith('entity-1');
+  });
+
+  it('renders source result counts as current scope counts', () => {
+    const ui = create_ui_slice_fixture({ query_mode: 'source' });
+
+    use_workspace_ui_context_mock.mockReturnValue(ui);
+    use_query_studio_mock.mockReturnValue({
+      query_mode: ui.query_mode,
+      set_query_mode: ui.set_query_mode,
+      ...create_query_slice_fixture({
+        source_results: [
+          {
+            id: 'source-1',
+            name: '来源一.txt',
+            summary: '来源摘要',
+            paragraph_count: 12,
+            source_kind: 'text',
+          },
+        ],
+      }),
+    });
+
+    render(<QueryStudioPanel />);
+
+    expect(screen.getByText('范围内段落 12')).toBeInTheDocument();
   });
 
   it('submits the current question on Enter in answer mode', async () => {

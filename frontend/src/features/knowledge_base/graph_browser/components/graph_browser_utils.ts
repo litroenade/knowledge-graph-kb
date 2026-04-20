@@ -113,6 +113,14 @@ export function format_source_raw_stats(source: SourceLike): string | null {
   return stat_items.length ? stat_items.join(' / ') : null;
 }
 
+export function format_labeled_source_raw_stats(
+  source: SourceLike,
+  label = '导入统计',
+): string | null {
+  const raw_stats = format_source_raw_stats(source);
+  return raw_stats ? `${label} · ${raw_stats}` : null;
+}
+
 export function compact_selected_source_summary(
   selected_source_ids: string[],
   sources: SourceLike[],
