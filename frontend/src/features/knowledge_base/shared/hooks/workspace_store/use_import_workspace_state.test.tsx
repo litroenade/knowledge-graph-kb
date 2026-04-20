@@ -64,6 +64,12 @@ function create_import_task(status: string): ImportTaskRecord {
   };
 }
 
+function create_wrapper(query_client: QueryClient) {
+  return function wrapper(props: { children: ReactNode }) {
+    return <QueryClientProvider client={query_client}>{props.children}</QueryClientProvider>;
+  };
+}
+
 describe('use_import_workspace_state', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -92,10 +98,6 @@ describe('use_import_workspace_state', () => {
     });
     const invalidate_queries_spy = vi.spyOn(query_client, 'invalidateQueries');
 
-    function wrapper(props: { children: ReactNode }) {
-      return <QueryClientProvider client={query_client}>{props.children}</QueryClientProvider>;
-    }
-
     const { result } = renderHook(
       () =>
         use_import_workspace_state({
@@ -103,7 +105,7 @@ describe('use_import_workspace_state', () => {
           set_message,
           set_error,
         }),
-      { wrapper },
+      { wrapper: create_wrapper(query_client) },
     );
 
     await waitFor(() => {
@@ -131,5 +133,147 @@ describe('use_import_workspace_state', () => {
     expect(invalidated_query_keys).toContain(JSON.stringify(['kb', 'graph']));
     expect(invalidated_query_keys).toContain(JSON.stringify(['kb', 'graph', 'manual-relations']));
     expect(set_error).not.toHaveBeenCalled();
+  });
+
+  it('logs structured payload parse failures with route context', async () => {
+    const refresh_sources = vi.fn(async () => {});
+    const set_message = vi.fn();
+    const set_error = vi.fn();
+    const console_error_spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const query_client = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+          gcTime: Infinity,
+        },
+      },
+    });
+
+    const { result } = renderHook(
+      () =>
+        use_import_workspace_state({
+          refresh_sources,
+          set_message,
+          set_error,
+        }),
+      { wrapper: create_wrapper(query_client) },
+    );
+
+    await waitFor(() => {
+      expect(list_import_jobs_mock).toHaveBeenCalledTimes(1);
+    });
+
+    await act(async () => {
+      await result.current.import_structured_payload('openie', '坏 payload', '[]', 'quote');
+    });
+
+    expect(submit_structured_job_mock).not.toHaveBeenCalled();
+    expect(set_error).toHaveBeenLastCalledWith('结构化导入 payload 必须是 JSON 对象。');
+    expect(console_error_spy).toHaveBeenCalledWith(
+      expect.stringContaining('[kb.import] 解析结构化导入 payload 失败: 结构化导入 payload 必须是 JSON 对象。'),
+      expect.objectContaining({
+        action: '解析结构化导入 payload 失败',
+        route: 'openie',
+        title: '坏 payload',
+        strategy: 'quote',
+        payload_length: 2,
+      }),
+    );
+
+    console_error_spy.mockRestore();
+  });
+
+  it('logs terminal import failures with file-level context when a job leaves the active state', async () => {
+    list_import_jobs_mock.mockResolvedValueOnce([create_import_task('running')]);
+
+    const refresh_sources = vi.fn(async () => {});
+    const set_message = vi.fn();
+    const set_error = vi.fn();
+    const console_error_spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const query_client = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+          gcTime: Infinity,
+        },
+      },
+    });
+
+    const { result } = renderHook(
+      () =>
+        use_import_workspace_state({
+          refresh_sources,
+          set_message,
+          set_error,
+        }),
+      { wrapper: create_wrapper(query_client) },
+    );
+
+    await waitFor(() => {
+      expect(result.current.tasks[0]?.status).toBe('running');
+    });
+
+    act(() => {
+      query_client.setQueryData(['kb', 'imports', 'jobs'], [
+        {
+          ...create_import_task('failed'),
+          progress: 100,
+          failed_files: 1,
+          failed_chunks: 1,
+          current_step: 'failed',
+          message: '导入失败',
+          error: '导入任务失败，共 1 个文件异常。',
+          failure_stage: 'embedding',
+          finished_at: '2026-04-14T00:00:03Z',
+          files: [
+            {
+              id: 'file-1',
+              job_id: 'job-1',
+              source_id: null,
+              name: 'alpha.pdf',
+              source_kind: 'file',
+              input_mode: 'upload',
+              strategy: 'auto',
+              status: 'failed',
+              current_step: 'failed',
+              progress: 100,
+              total_chunks: 1,
+              completed_chunks: 0,
+              failed_chunks: 1,
+              storage_path: null,
+              metadata: {},
+              error: '向量化阶段调用模型失败。',
+              failure_stage: 'embedding',
+              step_durations: {},
+              stats: {},
+              created_at: '2026-04-14T00:00:00Z',
+              updated_at: '2026-04-14T00:00:03Z',
+              chunks: [],
+            },
+          ],
+        },
+      ]);
+    });
+
+    await waitFor(() => {
+      expect(console_error_spy).toHaveBeenCalledWith(
+        expect.stringContaining('[kb.import] 导入任务异常: 导入任务失败，共 1 个文件异常。'),
+        expect.objectContaining({
+          job_id: 'job-1',
+          status: 'failed',
+          failure_stage: 'embedding',
+          file_issues: [
+            expect.objectContaining({
+              file_id: 'file-1',
+              name: 'alpha.pdf',
+              failure_stage: 'embedding',
+              error: '向量化阶段调用模型失败。',
+            }),
+          ],
+        }),
+      );
+    });
+
+    console_error_spy.mockRestore();
   });
 });

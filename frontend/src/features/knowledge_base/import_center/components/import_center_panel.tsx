@@ -6,6 +6,7 @@ import {
   get_strategy_label,
 } from '../../shared/config/ui_constants';
 import { use_workspace_source_context } from '../../shared/context/knowledge_base_workspace_context';
+import { get_import_task_issue_lines } from '../../shared/utils/import_error_reporting';
 import { use_import_center } from '../hooks/use_import_center';
 import {
   format_import_task_short_id,
@@ -263,53 +264,62 @@ export function ImportCenterPanel() {
       </section>
 
       <section className='kb-task-list'>
-        {tasks.map((task) => (
-          <article className='kb-detail-card' key={task.id}>
-            <div className='kb-button-row'>
-              <strong>{task.source || `任务 ${format_import_task_short_id(task.id)}`}</strong>
-              <div className='kb-meta-strip'>
-                <span className='kb-meta-pill'>{get_input_mode_label(task.input_mode)}</span>
-                <span className='kb-meta-pill'>{get_strategy_label(task.strategy)}</span>
-                <span className='kb-meta-pill'>{get_status_label(task.status)}</span>
+        {tasks.map((task) => {
+          const task_issue_lines = get_import_task_issue_lines(task, 3);
+
+          return (
+            <article className='kb-detail-card' key={task.id}>
+              <div className='kb-button-row'>
+                <strong>{task.source || `任务 ${format_import_task_short_id(task.id)}`}</strong>
+                <div className='kb-meta-strip'>
+                  <span className='kb-meta-pill'>{get_input_mode_label(task.input_mode)}</span>
+                  <span className='kb-meta-pill'>{get_strategy_label(task.strategy)}</span>
+                  <span className='kb-meta-pill'>{get_status_label(task.status)}</span>
+                  {task.failure_stage ? <span className='kb-meta-pill'>{`失败阶段：${task.failure_stage}`}</span> : null}
+                </div>
               </div>
-            </div>
 
-            <div className='kb-button-row'>
-              <span>{`进度 ${task.progress}%`}</span>
-              <span>{task_summary(task)}</span>
-              <span>{format_import_task_timestamp(task.created_at)}</span>
-            </div>
+              <div className='kb-button-row'>
+                <span>{`进度 ${task.progress}%`}</span>
+                <span>{task_summary(task)}</span>
+                <span>{format_import_task_timestamp(task.created_at)}</span>
+              </div>
 
-            <progress max={100} value={Math.max(0, Math.min(100, task.progress))} />
+              <progress max={100} value={Math.max(0, Math.min(100, task.progress))} />
 
-            <div className='kb-result-stack'>
-              <span>{`当前步骤：${task.current_step || '未开始'}`}</span>
-              {task.message ? <span>{task.message}</span> : null}
-              {task.error ? <span className='kb-error-text'>{task.error}</span> : null}
-            </div>
+              <div className='kb-result-stack'>
+                <span>{`当前步骤：${task.current_step || '未开始'}`}</span>
+                {task.message ? <span>{task.message}</span> : null}
+                {task_issue_lines.map((line) => (
+                  <span className='kb-error-text' key={`${task.id}-${line}`}>
+                    {line}
+                  </span>
+                ))}
+              </div>
 
-            <div className='kb-button-row'>
-              {is_import_task_active(task) ? (
-                <button
-                  className='kb-secondary-button'
-                  onClick={() => void imports.cancel_task(task.id)}
-                  type='button'
-                >
-                  取消任务
-                </button>
-              ) : null}
-              {task.status === 'failed' ? (
-                <button
-                  className='kb-secondary-button'
-                  onClick={() => void imports.retry_task(task.id)}
-                  type='button'
-                >
-                  重试任务
-                </button>
-              ) : null}
-            </div>
-          </article>
-        ))}
+              <div className='kb-button-row'>
+                {is_import_task_active(task) ? (
+                  <button
+                    className='kb-secondary-button'
+                    onClick={() => void imports.cancel_task(task.id)}
+                    type='button'
+                  >
+                    取消任务
+                  </button>
+                ) : null}
+                {task.status === 'failed' ? (
+                  <button
+                    className='kb-secondary-button'
+                    onClick={() => void imports.retry_task(task.id)}
+                    type='button'
+                  >
+                    重试任务
+                  </button>
+                ) : null}
+              </div>
+            </article>
+          );
+        })}
         {!tasks.length ? <div className='kb-empty-card'>当前还没有导入任务。</div> : null}
       </section>
     </section>

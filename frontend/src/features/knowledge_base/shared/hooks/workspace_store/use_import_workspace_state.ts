@@ -16,6 +16,12 @@ import {
 } from '../../api/import_api';
 import { kb_query_keys } from '../../api/query_client';
 import type { ImportTaskRecord } from '../../types/knowledge_base_types';
+import {
+  build_import_task_issue_signature,
+  report_import_task_issue,
+  report_import_workspace_error,
+  resolve_error_message,
+} from '../../utils/import_error_reporting';
 
 const ACTIVE_JOB_STATUSES: Set<string> = new Set(['queued', 'running', 'cancelling']);
 
@@ -33,6 +39,16 @@ export function use_import_workspace_state(props: ImportWorkspaceStateProps) {
   const { refresh_sources, set_message, set_error } = props;
   const query_client = useQueryClient();
   const previous_job_statuses_ref = useRef<Map<string, string>>(new Map());
+  const reported_job_error_message_ref = useRef<string | null>(null);
+  const reported_task_issue_signatures_ref = useRef<Map<string, string>>(new Map());
+
+  function report_and_set_error(
+    action: string,
+    error: unknown,
+    context?: Record<string, unknown>,
+  ): void {
+    set_error(report_import_workspace_error(action, error, context));
+  }
 
   const jobs_query = useQuery({
     queryKey: kb_query_keys.import_jobs(),
@@ -48,7 +64,7 @@ export function use_import_workspace_state(props: ImportWorkspaceStateProps) {
       await query_client.invalidateQueries({ queryKey: kb_query_keys.import_jobs() });
       await query_client.refetchQueries({ queryKey: kb_query_keys.import_jobs() });
     } catch (refresh_error) {
-      set_error((refresh_error as Error).message);
+      report_and_set_error('刷新导入任务失败', refresh_error);
     }
   }
 
@@ -72,22 +88,46 @@ export function use_import_workspace_state(props: ImportWorkspaceStateProps) {
   }
 
   useEffect(() => {
+    if (!jobs_query.error) {
+      reported_job_error_message_ref.current = null;
+      return;
+    }
+
+    const message = resolve_error_message(jobs_query.error, '加载导入任务失败。');
+    if (reported_job_error_message_ref.current === message) {
+      return;
+    }
+    reported_job_error_message_ref.current = message;
+    set_error(report_import_workspace_error('加载导入任务失败', jobs_query.error));
+  }, [jobs_query.error, set_error]);
+
+  useEffect(() => {
     const jobs = jobs_query.data ?? [];
     const previous_job_statuses = previous_job_statuses_ref.current;
-    const has_terminal_transition = jobs.some((job) => {
+    const reported_task_issue_signatures = reported_task_issue_signatures_ref.current;
+    const terminal_jobs = jobs.filter((job) => {
       const previous_status = previous_job_statuses.get(job.id);
       return Boolean(previous_status && is_active_job_status(previous_status) && !is_active_job_status(job.status));
     });
     previous_job_statuses_ref.current = new Map(jobs.map((job) => [job.id, job.status]));
-    if (!has_terminal_transition) {
+    if (!terminal_jobs.length) {
       return;
+    }
+
+    for (const job of terminal_jobs) {
+      const issue_signature = build_import_task_issue_signature(job);
+      if (!issue_signature || reported_task_issue_signatures.get(job.id) === issue_signature) {
+        continue;
+      }
+      report_import_task_issue(job);
+      reported_task_issue_signatures.set(job.id, issue_signature);
     }
 
     void (async () => {
       try {
         await Promise.all([refresh_sources(), invalidate_related_queries()]);
       } catch (refresh_error) {
-        set_error((refresh_error as Error).message);
+        report_and_set_error('刷新导入任务关联数据失败', refresh_error);
       }
     })();
   }, [jobs_query.data, refresh_sources, set_error]);
@@ -99,8 +139,12 @@ export function use_import_workspace_state(props: ImportWorkspaceStateProps) {
       set_error(null);
       await refresh_related_queries();
     },
-    onError: (submit_error) => {
-      set_error((submit_error as Error).message);
+    onError: (submit_error, variables) => {
+      report_and_set_error('提交上传导入失败', submit_error, {
+        strategy: variables.strategy,
+        file_count: variables.files.length,
+        file_names: variables.files.map((file) => file.name),
+      });
     },
   });
 
@@ -112,8 +156,12 @@ export function use_import_workspace_state(props: ImportWorkspaceStateProps) {
       set_error(null);
       await refresh_related_queries();
     },
-    onError: (submit_error) => {
-      set_error((submit_error as Error).message);
+    onError: (submit_error, payload) => {
+      report_and_set_error('提交粘贴导入失败', submit_error, {
+        title: payload.title,
+        strategy: payload.strategy,
+        content_length: payload.content.length,
+      });
     },
   });
 
@@ -124,8 +172,12 @@ export function use_import_workspace_state(props: ImportWorkspaceStateProps) {
       set_error(null);
       await refresh_related_queries();
     },
-    onError: (submit_error) => {
-      set_error((submit_error as Error).message);
+    onError: (submit_error, payload) => {
+      report_and_set_error('提交扫描导入失败', submit_error, {
+        root_path: payload.root_path,
+        glob_pattern: payload.glob_pattern,
+        strategy: payload.strategy,
+      });
     },
   });
 
@@ -141,8 +193,13 @@ export function use_import_workspace_state(props: ImportWorkspaceStateProps) {
       set_error(null);
       await refresh_related_queries();
     },
-    onError: (submit_error) => {
-      set_error((submit_error as Error).message);
+    onError: (submit_error, payload) => {
+      report_and_set_error('提交结构化导入失败', submit_error, {
+        route: payload.route,
+        title: payload.title,
+        strategy: payload.strategy,
+        payload_keys: Object.keys(payload.payload),
+      });
     },
   });
 
@@ -153,8 +210,8 @@ export function use_import_workspace_state(props: ImportWorkspaceStateProps) {
       set_error(null);
       await refresh_jobs();
     },
-    onError: (cancel_error) => {
-      set_error((cancel_error as Error).message);
+    onError: (cancel_error, job_id) => {
+      report_and_set_error('取消导入任务失败', cancel_error, { job_id });
     },
   });
 
@@ -165,8 +222,8 @@ export function use_import_workspace_state(props: ImportWorkspaceStateProps) {
       set_error(null);
       await refresh_related_queries();
     },
-    onError: (retry_error) => {
-      set_error((retry_error as Error).message);
+    onError: (retry_error, job_id) => {
+      report_and_set_error('重试导入任务失败', retry_error, { job_id });
     },
   });
 
@@ -199,7 +256,12 @@ export function use_import_workspace_state(props: ImportWorkspaceStateProps) {
       }
       payload = parsed_payload as Record<string, unknown>;
     } catch (parse_error) {
-      set_error((parse_error as Error).message);
+      report_and_set_error('解析结构化导入 payload 失败', parse_error, {
+        route: mode,
+        title,
+        strategy,
+        payload_length: payload_text.length,
+      });
       return;
     }
 

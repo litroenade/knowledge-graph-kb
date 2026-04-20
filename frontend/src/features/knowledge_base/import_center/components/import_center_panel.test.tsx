@@ -5,6 +5,7 @@ import {
   create_import_slice_fixture,
   create_source_slice_fixture,
 } from '../../shared/test_helpers/workspace_slice_fixtures';
+import type { ImportTaskRecord } from '../../shared/types/knowledge_base_types';
 import { ImportCenterPanel } from './import_center_panel';
 
 const {
@@ -70,5 +71,93 @@ describe('ImportCenterPanel', () => {
         'auto',
       );
     });
+  });
+
+  it('renders job-level and file-level import errors with the failure stage', () => {
+    const failed_task: ImportTaskRecord = {
+      id: 'job-1',
+      source: '季度报告',
+      input_mode: 'upload',
+      strategy: 'auto',
+      status: 'failed',
+      current_step: 'failed',
+      progress: 100,
+      total_files: 2,
+      completed_files: 0,
+      failed_files: 2,
+      total_chunks: 2,
+      completed_chunks: 0,
+      failed_chunks: 2,
+      message: '导入失败',
+      error: '导入任务失败，共 2 个文件异常。',
+      params: {},
+      failure_stage: 'embedding',
+      step_durations: {},
+      retry_of: null,
+      stats: {},
+      created_at: '2026-04-14T00:00:00Z',
+      started_at: '2026-04-14T00:00:01Z',
+      finished_at: '2026-04-14T00:00:05Z',
+      updated_at: '2026-04-14T00:00:05Z',
+      files: [
+        {
+          id: 'file-1',
+          job_id: 'job-1',
+          source_id: null,
+          name: 'alpha.pdf',
+          source_kind: 'file',
+          input_mode: 'upload',
+          strategy: 'auto',
+          status: 'failed',
+          current_step: 'failed',
+          progress: 100,
+          total_chunks: 1,
+          completed_chunks: 0,
+          failed_chunks: 1,
+          storage_path: null,
+          metadata: {},
+          error: 'PDF 不包含可读文本。',
+          failure_stage: 'parsing',
+          step_durations: {},
+          stats: {},
+          created_at: '2026-04-14T00:00:00Z',
+          updated_at: '2026-04-14T00:00:04Z',
+          chunks: [],
+        },
+        {
+          id: 'file-2',
+          job_id: 'job-1',
+          source_id: null,
+          name: 'beta.xlsx',
+          source_kind: 'file',
+          input_mode: 'upload',
+          strategy: 'auto',
+          status: 'failed',
+          current_step: 'failed',
+          progress: 100,
+          total_chunks: 1,
+          completed_chunks: 0,
+          failed_chunks: 1,
+          storage_path: null,
+          metadata: {},
+          error: 'Embedding 模型请求失败。',
+          failure_stage: 'embedding',
+          step_durations: {},
+          stats: {},
+          created_at: '2026-04-14T00:00:00Z',
+          updated_at: '2026-04-14T00:00:05Z',
+          chunks: [],
+        },
+      ],
+    };
+
+    use_import_center_mock.mockReturnValue(create_import_slice_fixture({ tasks: [failed_task] }));
+
+    render(<ImportCenterPanel />);
+
+    expect(screen.getByText('失败阶段：embedding')).toBeInTheDocument();
+    expect(screen.getByText('导入任务失败，共 2 个文件异常。')).toBeInTheDocument();
+    expect(screen.getByText('alpha.pdf · parsing：PDF 不包含可读文本。')).toBeInTheDocument();
+    expect(screen.getByText('beta.xlsx · embedding：Embedding 模型请求失败。')).toBeInTheDocument();
   });
 });
