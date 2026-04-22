@@ -3,11 +3,15 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { fetch_model_config, test_model_config, update_model_config } from '../../../../shared/api/kb';
 import { to_user_error_message } from '../../../../shared/api/errorMessages';
 import type { ModelConfigResponse, ModelConfigTestResponse, SystemReady } from '../../../../shared/types/kb';
+import { get_model_config_presentation, type ModelConfigMode } from '../../model/workspaceExperience';
 import { stringify_detail } from './formatters';
 
 interface ModelConfigPanelProps {
   ready: SystemReady | null;
   on_saved: () => void;
+  mode?: ModelConfigMode;
+  title?: string;
+  description?: string;
 }
 
 export function ModelConfigPanel(props: ModelConfigPanelProps) {
@@ -22,6 +26,10 @@ export function ModelConfigPanel(props: ModelConfigPanelProps) {
   const [test_result, set_test_result] = useState<ModelConfigTestResponse | null>(null);
   const [busy, set_busy] = useState(false);
   const [message, set_message] = useState<string | null>(null);
+  const presentation = useMemo(
+    () => get_model_config_presentation(props.mode ? props.mode : 'shared'),
+    [props.mode],
+  );
 
   const load_config = useCallback(async () => {
     const next_config = await fetch_model_config();
@@ -95,9 +103,10 @@ export function ModelConfigPanel(props: ModelConfigPanelProps) {
   return (
     <section className='panel-body model-panel'>
       <div className='section-heading'>
-        <span>模型配置</span>
+        <span>{props.title ? props.title : presentation.title}</span>
         <button disabled={busy} onClick={refresh_config} type='button'>刷新</button>
       </div>
+      <p className='muted'>{props.description ? props.description : presentation.description}</p>
 
       <div className='form-grid'>
         <label className='field'>
@@ -109,12 +118,16 @@ export function ModelConfigPanel(props: ModelConfigPanelProps) {
           <input onChange={(event) => set_base_url(event.target.value)} value={base_url} />
         </label>
         <label className='field'>
-          <span>LLM 模型</span>
+          <span>{presentation.llm_label}</span>
           <input onChange={(event) => set_llm_model(event.target.value)} value={llm_model} />
         </label>
         <label className='field'>
-          <span>Embedding 模型</span>
-          <input onChange={(event) => set_embedding_model(event.target.value)} value={embedding_model} />
+          <span>{presentation.embedding_label}</span>
+          <input
+            disabled={!presentation.embedding_editable}
+            onChange={(event) => set_embedding_model(event.target.value)}
+            value={embedding_model}
+          />
         </label>
       </div>
 
@@ -139,7 +152,7 @@ export function ModelConfigPanel(props: ModelConfigPanelProps) {
 
       {config ? (
         <div className='detail-block'>
-          <strong>当前状态</strong>
+          <strong>{presentation.status_title}</strong>
           <div><span>Key</span><b>{config.has_api_key ? `已配置 ${config.api_key_preview ?? ''}` : '未配置'}</b></div>
           <div><span>来源</span><b>{config.api_key_source}</b></div>
           <div><span>重建</span><b>{config.reindex_required ? '需要' : '不需要'}</b></div>
@@ -172,8 +185,15 @@ export function ModelConfigPanel(props: ModelConfigPanelProps) {
       </div>
 
       <div className='capability-note'>
-        <strong>向量重建</strong>
-        <p>当前后端仅有 CLI/服务层重建能力，尚未开放 HTTP 任务接口；这里先展示索引状态。</p>
+        <strong>{presentation.capability_title}</strong>
+        <p>{presentation.capability_body}</p>
+        {presentation.backend_pending_items.length ? (
+          <ul className='pending-list'>
+            {presentation.backend_pending_items.map((item) => (
+              <li key={item}>{item}</li>
+            ))}
+          </ul>
+        ) : null}
       </div>
 
       {message ? <p className='inline-message'>{message}</p> : null}

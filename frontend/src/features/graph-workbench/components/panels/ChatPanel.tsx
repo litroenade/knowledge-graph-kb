@@ -37,6 +37,9 @@ export function ChatPanel(props: ChatPanelProps) {
   const [draft, set_draft] = useState('');
   const [search_query, set_search_query] = useState('');
   const [search_kind, set_search_kind] = useState<SearchKind>('records');
+  const [top_k, set_top_k] = useState(8);
+  const [citation_limit, set_citation_limit] = useState(4);
+  const [search_limit, set_search_limit] = useState(20);
   const [search_results, set_search_results] = useState<SearchResult[]>([]);
   const [busy, set_busy] = useState(false);
   const [message, set_message] = useState<string | null>(null);
@@ -113,7 +116,7 @@ export function ChatPanel(props: ChatPanelProps) {
     try {
       const session_id = await ensure_session();
       set_draft('');
-      const detail = await send_chat_message({ session_id, content, scope: props.scope, top_k: 8 });
+      const detail = await send_chat_message({ session_id, content, scope: props.scope, top_k });
       set_sessions((current) => [detail.session, ...current.filter((session) => session.id !== detail.session.id)]);
       set_active_session_id(detail.session.id);
       set_messages(detail.messages);
@@ -138,7 +141,7 @@ export function ChatPanel(props: ChatPanelProps) {
     set_busy(true);
     set_message(null);
     try {
-      const results = await run_search(search_kind, query, props.scope);
+      const results = await run_search(search_kind, query, props.scope, search_limit);
       set_search_results(results);
     } catch (error) {
       set_message(to_user_error_message(error, 'chat'));
@@ -147,6 +150,14 @@ export function ChatPanel(props: ChatPanelProps) {
     }
   }
 
+  const matched_latest_assistant_message = [...messages].reverse().find((item) => item.role === 'assistant');
+  const latest_assistant_message = matched_latest_assistant_message ? matched_latest_assistant_message : null;
+  const visible_citations = latest_assistant_message
+    ? latest_assistant_message.citations.slice(0, citation_limit)
+    : [];
+  const retrieval_trace = latest_assistant_message ? latest_assistant_message.retrieval_trace : null;
+  const execution = latest_assistant_message ? latest_assistant_message.execution : null;
+
   return (
     <section className='panel-body chat-panel'>
       <div className='section-heading'>
@@ -154,43 +165,87 @@ export function ChatPanel(props: ChatPanelProps) {
         <button disabled={busy} onClick={() => void new_session()} type='button'>新会话</button>
       </div>
 
-      <div className='session-strip'>
-        {sessions.slice(0, 8).map((session) => (
-          <button
-            className={session.id === active_session_id ? 'is-active' : ''}
-            key={session.id}
-            onClick={() => set_active_session_id(session.id)}
-            type='button'
-          >
-            {session.title || '未命名会话'}
-          </button>
-        ))}
-      </div>
+      <div className='chat-console-grid'>
+        <aside className='chat-session-list'>
+          <strong>会话</strong>
+          <div className='session-strip'>
+            {sessions.slice(0, 12).map((session) => (
+              <button
+                className={session.id === active_session_id ? 'is-active' : ''}
+                key={session.id}
+                onClick={() => set_active_session_id(session.id)}
+                type='button'
+              >
+                {session.title || '未命名会话'}
+              </button>
+            ))}
+            {!sessions.length ? <p className='muted'>暂无会话。</p> : null}
+          </div>
+        </aside>
 
-      <div className='chat-thread'>
-        {active_session ? <p className='muted'>当前会话：{active_session.title || active_session.id} · {format_date(active_session.updated_at)}</p> : null}
-        {messages.map((item) => (
-          <article className={`chat-message is-${item.role}`} key={item.id}>
-            <strong>{item.role === 'user' ? '我' : '助手'}</strong>
-            <p>{item.content}</p>
-            {item.error ? <p className='is-danger'>{item.error}</p> : null}
-            {item.citations.length ? (
-              <div className='citation-list'>
-                {item.citations.slice(0, 3).map((citation) => (
-                  <span key={`${item.id}-${citation.paragraph_id}`}>{citation.source_name} · {citation.score.toFixed(2)}</span>
-                ))}
-              </div>
-            ) : null}
-          </article>
-        ))}
-        {!messages.length ? <p className='muted'>暂无消息。发送问题后会使用当前来源范围进行检索增强回答。</p> : null}
-      </div>
+        <div className='chat-thread-column'>
+          <div className='chat-thread'>
+            {active_session ? <p className='muted'>当前会话：{active_session.title || active_session.id} · {format_date(active_session.updated_at)}</p> : null}
+            {messages.map((item) => (
+              <article className={`chat-message is-${item.role}`} key={item.id}>
+                <strong>{item.role === 'user' ? '我' : '助手'}</strong>
+                <p>{item.content}</p>
+                {item.error ? <p className='is-danger'>{item.error}</p> : null}
+                {item.citations.length ? (
+                  <div className='citation-list'>
+                    {item.citations.slice(0, citation_limit).map((citation) => (
+                      <span key={`${item.id}-${citation.paragraph_id}`}>{citation.source_name} · {citation.score.toFixed(2)}</span>
+                    ))}
+                  </div>
+                ) : null}
+              </article>
+            ))}
+            {!messages.length ? <p className='muted'>暂无消息。发送问题后会使用当前来源范围进行检索增强回答。</p> : null}
+          </div>
 
-      <label className='field'>
-        <span>问题</span>
-        <textarea onChange={(event) => set_draft(event.target.value)} rows={4} value={draft} />
-      </label>
-      <button disabled={busy} onClick={() => void submit_message()} type='button'>发送到当前范围</button>
+          <label className='field'>
+            <span>问题</span>
+            <textarea onChange={(event) => set_draft(event.target.value)} rows={4} value={draft} />
+          </label>
+          <button disabled={busy} onClick={() => void submit_message()} type='button'>发送到当前范围</button>
+        </div>
+
+        <aside className='chat-context-panel'>
+          <strong>检索上下文</strong>
+          <div className='form-grid'>
+            <label className='field'>
+              <span>Top-K</span>
+              <input min={1} max={20} onChange={(event) => set_top_k(read_number_input(event.target.value, 1, 20))} type='number' value={top_k} />
+            </label>
+            <label className='field'>
+              <span>引用数</span>
+              <input min={1} max={10} onChange={(event) => set_citation_limit(read_number_input(event.target.value, 1, 10))} type='number' value={citation_limit} />
+            </label>
+          </div>
+          <div className='detail-block'>
+            <strong>当前范围</strong>
+            <div><span>模式</span><b>{props.scope.mode}</b></div>
+            <div><span>来源</span><b>{props.scope.source_ids.length ? `${props.scope.source_ids.length} 个` : '全部'}</b></div>
+            <div><span>排除</span><b>{props.scope.excluded_source_ids.length ? `${props.scope.excluded_source_ids.length} 个` : '无'}</b></div>
+          </div>
+          <div className='citation-panel'>
+            <strong>引用证据</strong>
+            {visible_citations.map((citation) => (
+              <article key={citation.paragraph_id}>
+                <span>{citation.source_name} · {citation.score.toFixed(2)}</span>
+                <p>{citation.snippet ? citation.snippet : citation.excerpt}</p>
+              </article>
+            ))}
+            {!visible_citations.length ? <p className='muted'>暂无引用。发送问题后显示命中证据。</p> : null}
+          </div>
+          <div className='detail-block'>
+            <strong>执行诊断</strong>
+            <div><span>模型</span><b>{execution?.model_invoked ? '已调用' : '未调用'}</b></div>
+            <div><span>命中</span><b>{execution ? `${execution.matched_paragraph_count} 段` : '无'}</b></div>
+            <div><span>耗时</span><b>{retrieval_trace ? `${Math.round(retrieval_trace.total_ms)} ms` : '无'}</b></div>
+          </div>
+        </aside>
+      </div>
 
       <div className='stacked-tool'>
         <strong>结构化检索</strong>
@@ -203,6 +258,10 @@ export function ChatPanel(props: ChatPanelProps) {
           </select>
           <button disabled={busy} onClick={() => void submit_search()} type='button'>检索</button>
         </div>
+        <label className='field'>
+          <span>结果上限</span>
+          <input min={1} max={50} onChange={(event) => set_search_limit(read_number_input(event.target.value, 1, 50))} type='number' value={search_limit} />
+        </label>
         <input onChange={(event) => set_search_query(event.target.value)} placeholder='输入检索词' value={search_query} />
         <div className='search-result-list'>
           {search_results.map((item, index) => (
@@ -216,17 +275,17 @@ export function ChatPanel(props: ChatPanelProps) {
   );
 }
 
-async function run_search(kind: SearchKind, query: string, scope: KBScope): Promise<SearchResult[]> {
+async function run_search(kind: SearchKind, query: string, scope: KBScope, limit: number): Promise<SearchResult[]> {
   if (kind === 'records') {
-    return search_records(query, scope, 20);
+    return search_records(query, scope, limit);
   }
   if (kind === 'entities') {
-    return search_entities(query, scope, 20);
+    return search_entities(query, scope, limit);
   }
   if (kind === 'relations') {
-    return search_relations(query, scope, 20);
+    return search_relations(query, scope, limit);
   }
-  return search_sources(query, scope, 20);
+  return search_sources(query, scope, limit);
 }
 
 function search_result_key(item: SearchResult, index: number): string {
@@ -234,6 +293,14 @@ function search_result_key(item: SearchResult, index: number): string {
     return item.paragraph_id;
   }
   return `${item.id}-${index}`;
+}
+
+function read_number_input(value: string, min: number, max: number): number {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) {
+    return min;
+  }
+  return Math.max(min, Math.min(max, Math.round(parsed)));
 }
 
 function SearchResultRow(props: { item: SearchResult; on_focus_node: (node_id: string) => void }) {

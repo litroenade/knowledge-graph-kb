@@ -33,11 +33,37 @@ export interface EvidenceAnchorViewChangeInput {
   selected: Selection;
 }
 
+export interface EvidenceAnchorSelectionChangeInput {
+  current_anchor: Selection;
+  current_view: GraphDataView;
+  selected: Selection;
+}
+
+export interface GraphFocusSelectionInput {
+  current_view: GraphDataView;
+  evidence_anchor: Selection;
+  selected: Selection;
+}
+
 export function resolve_evidence_anchor_on_view_change(input: EvidenceAnchorViewChangeInput): Selection {
   if (input.next_view !== 'evidence') {
     return input.current_anchor;
   }
   return input.selected ?? input.current_anchor;
+}
+
+export function resolve_evidence_anchor_on_selection_change(input: EvidenceAnchorSelectionChangeInput): Selection {
+  if (input.current_view === 'evidence' || !input.selected) {
+    return input.current_anchor;
+  }
+  return input.selected;
+}
+
+export function resolve_graph_focus_selection(input: GraphFocusSelectionInput): Selection {
+  if (input.current_view === 'evidence') {
+    return input.selected ?? input.evidence_anchor;
+  }
+  return input.selected;
 }
 
 export function build_graph_query_plan(input: GraphQueryPlanInput): GraphQueryPlan {

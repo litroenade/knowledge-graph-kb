@@ -1,7 +1,9 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import {
   cancel_import_job,
+  fetch_import_chunks,
+  fetch_import_job,
   fetch_import_jobs,
   paste_import,
   retry_import_job,
@@ -9,15 +11,101 @@ import {
   upload_import_files,
 } from '../../../../shared/api/kb';
 import { to_user_error_message } from '../../../../shared/api/errorMessages';
-import type { ImportJobItem } from '../../../../shared/types/kb';
+import type { ImportJobChunkItem, ImportJobFileItem, ImportJobItem } from '../../../../shared/types/kb';
 import { format_date, format_percent } from './formatters';
 
 interface ImportPanelProps {
   on_import_finished: () => void;
 }
 
+type ImportInputTab = 'upload' | 'paste' | 'scan';
+
+const STATUS_LABELS: Record<string, string> = {
+  aborted: '已中止',
+  cancelled: '已取消',
+  cancelling: '取消中',
+  completed: '已完成',
+  failed: '失败',
+  partial: '部分完成',
+  queued: '排队中',
+  ready: '就绪',
+  running: '运行中',
+};
+
+const STEP_LABELS: Record<string, string> = {
+  aborted: '已中止',
+  cancelled: '已取消',
+  cancelling: '取消中',
+  completed: '已完成',
+  embedding: '向量化',
+  extracting: '抽取中',
+  failed: '失败',
+  indexing: '建索引',
+  preparing: '准备中',
+  queued: '排队中',
+  splitting: '分块中',
+  writing: '写入中',
+};
+
+const SOURCE_LABELS: Record<string, string> = {
+  paste: '粘贴导入',
+  scan: '目录扫描',
+  upload: '文件上传',
+};
+
+const RUNNING_STATUSES = new Set(['running', 'preparing', 'cancelling']);
+const QUEUED_STATUSES = new Set(['queued']);
+const CANCELABLE_STATUSES = new Set(['queued', 'running', 'preparing', 'cancelling']);
+
+function status_label(value: string): string {
+  return STATUS_LABELS[value] ?? value;
+}
+
+function step_label(value: string): string {
+  return STEP_LABELS[value] ?? value;
+}
+
+function source_label(value: string): string {
+  return SOURCE_LABELS[value] ?? value;
+}
+
+function status_class(value: string): string {
+  if (['completed', 'ready'].includes(value)) {
+    return 'is-ok';
+  }
+  if (['failed', 'aborted'].includes(value)) {
+    return 'is-danger';
+  }
+  if (['partial', 'cancelled', 'cancelling'].includes(value)) {
+    return 'is-warning';
+  }
+  return 'is-running';
+}
+
+function extract_job_id(result: unknown): string | null {
+  if (result && typeof result === 'object') {
+    const direct = result as { id?: unknown; job?: { id?: unknown } };
+    if (typeof direct.id === 'string') {
+      return direct.id;
+    }
+    if (typeof direct.job?.id === 'string') {
+      return direct.job.id;
+    }
+  }
+  return null;
+}
+
+function format_count(done: number, total: number): string {
+  return `${done}/${total}`;
+}
+
 export function ImportPanel(props: ImportPanelProps) {
+  const [active_tab, set_active_tab] = useState<ImportInputTab>('upload');
   const [jobs, set_jobs] = useState<ImportJobItem[]>([]);
+  const [selected_job_id, set_selected_job_id] = useState<string | null>(null);
+  const [selected_job, set_selected_job] = useState<ImportJobItem | null>(null);
+  const [selected_file_id, set_selected_file_id] = useState<string | null>(null);
+  const [chunks, set_chunks] = useState<ImportJobChunkItem[]>([]);
   const [title, set_title] = useState('');
   const [content, set_content] = useState('');
   const [root_path, set_root_path] = useState('');
@@ -36,6 +124,71 @@ export function ImportPanel(props: ImportPanelProps) {
     void refresh_jobs();
   }, [load_jobs]);
 
+  useEffect(() => {
+    if (selected_job_id && jobs.some((job) => job.id === selected_job_id)) {
+      return;
+    }
+    set_selected_job_id(jobs[0]?.id ?? null);
+  }, [jobs, selected_job_id]);
+
+  useEffect(() => {
+    let ignore = false;
+    if (!selected_job_id) {
+      set_selected_job(null);
+      set_selected_file_id(null);
+      set_chunks([]);
+      return;
+    }
+
+    fetch_import_job(selected_job_id)
+      .then((job) => {
+        if (ignore) {
+          return;
+        }
+        set_selected_job(job);
+        set_selected_file_id((current) => {
+          if (current && job.files.some((file) => file.id === current)) {
+            return current;
+          }
+          return job.files[0]?.id ?? null;
+        });
+      })
+      .catch((error) => {
+        if (!ignore) {
+          set_message(to_user_error_message(error, 'import'));
+        }
+      });
+
+    return () => {
+      ignore = true;
+    };
+  }, [selected_job_id]);
+
+  useEffect(() => {
+    let ignore = false;
+    if (!selected_job_id || !selected_file_id) {
+      set_chunks([]);
+      return;
+    }
+
+    fetch_import_chunks(selected_job_id, selected_file_id)
+      .then((items) => {
+        if (!ignore) {
+          set_chunks(items);
+        }
+      })
+      .catch((error) => {
+        if (!ignore) {
+          set_chunks([]);
+          set_message(to_user_error_message(error, 'import'));
+        }
+      });
+
+    return () => {
+      ignore = true;
+    };
+  }, [selected_file_id, selected_job_id]);
+
   function refresh_jobs(): void {
     set_message(null);
     void load_jobs().catch((error) => set_message(to_user_error_message(error, 'import')));
@@ -45,7 +198,11 @@ export function ImportPanel(props: ImportPanelProps) {
     set_busy(true);
     set_message(null);
     try {
-      await action();
+      const result = await action();
+      const job_id = extract_job_id(result);
+      if (job_id) {
+        set_selected_job_id(job_id);
+      }
       set_message(success);
       await load_jobs();
       props.on_import_finished();
@@ -86,95 +243,328 @@ export function ImportPanel(props: ImportPanelProps) {
       set_message('请选择要上传的文件。');
       return;
     }
-    await run_action(() => upload_import_files(files, strategy), '文件上传任务已提交。');
+    await run_action(async () => {
+      const response = await upload_import_files(files, strategy);
+      set_files([]);
+      return response;
+    }, '文件上传任务已提交。');
   }
 
   async function cancel_job(job_id: string): Promise<void> {
-    await run_action(() => cancel_import_job(job_id), '任务已取消。');
+    await run_action(() => cancel_import_job(job_id), '已请求取消任务。');
   }
 
   async function retry_job(job_id: string): Promise<void> {
-    await run_action(() => retry_import_job(job_id), '任务已重新提交。');
+    await run_action(() => retry_import_job(job_id), '失败任务已重新提交。');
+  }
+
+  const grouped_jobs = useMemo(() => {
+    const running: ImportJobItem[] = [];
+    const queued: ImportJobItem[] = [];
+    const recent: ImportJobItem[] = [];
+    for (const job of jobs) {
+      if (RUNNING_STATUSES.has(job.status)) {
+        running.push(job);
+      } else if (QUEUED_STATUSES.has(job.status)) {
+        queued.push(job);
+      } else {
+        recent.push(job);
+      }
+    }
+    return { running, queued, recent };
+  }, [jobs]);
+
+  const pasted_chars = content.trim().length;
+  const selected_file = selected_job?.files.find((file) => file.id === selected_file_id) ?? null;
+  const selected_file_names = files.map((file) => file.name);
+  const selected_job_summary = selected_job_id ? jobs.find((job) => job.id === selected_job_id) : null;
+  const preview_job = selected_job_summary ?? selected_job;
+
+  function render_job_card(job: ImportJobItem): JSX.Element {
+    const is_active = selected_job_id === job.id;
+    return (
+      <button
+        className={`task-card ${is_active ? 'is-active' : ''}`}
+        key={job.id}
+        onClick={() => set_selected_job_id(job.id)}
+        type='button'
+      >
+        <span>
+          <strong>{source_label(job.source)}</strong>
+          <b className={`status-badge ${status_class(job.status)}`}>{status_label(job.status)}</b>
+        </span>
+        <small>{job.id.slice(0, 12)} · {step_label(job.current_step)}</small>
+        <span className='progress-track'><i style={{ width: format_percent(job.progress) }} /></span>
+        <small>{format_percent(job.progress)} · 文件 {format_count(job.completed_files, job.total_files)} · 分块 {format_count(job.completed_chunks, job.total_chunks)}</small>
+      </button>
+    );
+  }
+
+  function render_file_row(file: ImportJobFileItem): JSX.Element {
+    const is_active = file.id === selected_file_id;
+    return (
+      <tr className={is_active ? 'is-selected' : ''} key={file.id} onClick={() => set_selected_file_id(file.id)}>
+        <td>{file.name}</td>
+        <td>{file.input_mode}</td>
+        <td><span className={`status-badge ${status_class(file.status)}`}>{status_label(file.status)}</span></td>
+        <td>{step_label(file.current_step)}</td>
+        <td>{format_percent(file.progress)}</td>
+        <td>{format_count(file.completed_chunks, file.total_chunks)}</td>
+      </tr>
+    );
   }
 
   return (
     <section className='panel-body import-panel'>
       <div className='section-heading'>
         <span>导入中心</span>
-        <button disabled={busy} onClick={refresh_jobs} type='button'>刷新</button>
+        <button disabled={busy} onClick={refresh_jobs} type='button'>刷新任务</button>
       </div>
 
-      <div className='form-grid'>
-        <label className='field'>
-          <span>导入策略</span>
-          <select onChange={(event) => set_strategy(event.target.value)} value={strategy}>
-            <option value='auto'>auto</option>
-            <option value='plain'>plain</option>
-            <option value='table'>table</option>
-            <option value='openie'>openie</option>
-          </select>
-        </label>
-      </div>
+      <div className='import-workbench-grid'>
+        <div className='import-compose-card'>
+          <div className='import-tabs' role='tablist'>
+            <button
+              aria-selected={active_tab === 'upload'}
+              className={active_tab === 'upload' ? 'active' : ''}
+              onClick={() => set_active_tab('upload')}
+              type='button'
+            >
+              上传文件
+            </button>
+            <button
+              aria-selected={active_tab === 'paste'}
+              className={active_tab === 'paste' ? 'active' : ''}
+              onClick={() => set_active_tab('paste')}
+              type='button'
+            >
+              粘贴导入
+            </button>
+            <button
+              aria-selected={active_tab === 'scan'}
+              className={active_tab === 'scan' ? 'active' : ''}
+              onClick={() => set_active_tab('scan')}
+              type='button'
+            >
+              扫描目录
+            </button>
+          </div>
 
-      <div className='stacked-tool'>
-        <strong>粘贴文本</strong>
-        <label className='field'>
-          <span>标题</span>
-          <input onChange={(event) => set_title(event.target.value)} value={title} />
-        </label>
-        <label className='field'>
-          <span>正文</span>
-          <textarea onChange={(event) => set_content(event.target.value)} rows={5} value={content} />
-        </label>
-        <button disabled={busy} onClick={() => void submit_paste()} type='button'>提交粘贴导入</button>
-      </div>
+          <div className='form-grid'>
+            <label className='field'>
+              <span>解析策略</span>
+              <select onChange={(event) => set_strategy(event.target.value)} value={strategy}>
+                <option value='auto'>自动 auto</option>
+                <option value='plain'>纯文本 plain</option>
+                <option value='table'>表格 table</option>
+                <option value='openie'>关系抽取 openie</option>
+              </select>
+            </label>
+          </div>
 
-      <div className='stacked-tool'>
-        <strong>上传文件</strong>
-        <input
-          multiple
-          onChange={(event) => set_files(Array.from(event.target.files ?? []))}
-          type='file'
-        />
-        <button disabled={busy} onClick={() => void submit_upload()} type='button'>上传并导入</button>
-      </div>
-
-      <div className='stacked-tool'>
-        <strong>扫描目录</strong>
-        <label className='field'>
-          <span>根路径</span>
-          <input onChange={(event) => set_root_path(event.target.value)} value={root_path} />
-        </label>
-        <label className='field'>
-          <span>Glob</span>
-          <input onChange={(event) => set_glob_pattern(event.target.value)} value={glob_pattern} />
-        </label>
-        <button disabled={busy} onClick={() => void submit_scan()} type='button'>提交扫描任务</button>
-      </div>
-
-      {message ? <p className='inline-message'>{message}</p> : null}
-
-      <div className='job-list'>
-        {jobs.map((job) => (
-          <article className='job-item' key={job.id}>
-            <div className='job-item-header'>
-              <strong>{job.source}</strong>
-              <span>{job.status} · {format_percent(job.progress)}</span>
+          <div className='import-preview-grid'>
+            <div className='detail-block'>
+              <strong>输入预览</strong>
+              <div><span>粘贴文本</span><b>{pasted_chars ? `${pasted_chars} 字符` : '未填写'}</b></div>
+              <div><span>上传文件</span><b>{selected_file_names.length ? `${selected_file_names.length} 个文件` : '未选择'}</b></div>
+              <div><span>扫描目录</span><b>{root_path.trim() ? root_path.trim() : '未填写'}</b></div>
             </div>
-            <p>{job.current_step} · 文件 {job.completed_files}/{job.total_files} · 分块 {job.completed_chunks}/{job.total_chunks}</p>
-            {job.error ? <p className='is-danger'>{job.error}</p> : null}
-            <div className='job-item-footer'>
-              <span>{format_date(job.updated_at)}</span>
-              <div>
-                <button disabled={busy || !['queued', 'running'].includes(job.status)} onClick={() => void cancel_job(job.id)} type='button'>
-                  取消
-                </button>
-                <button disabled={busy} onClick={() => void retry_job(job.id)} type='button'>重试</button>
+            <div className='detail-block'>
+              <strong>执行摘要</strong>
+              <div><span>策略</span><b>{strategy}</b></div>
+              <div><span>Glob</span><b>{glob_pattern.trim() || '**/*'}</b></div>
+              <div><span>最近任务</span><b>{preview_job ? `${status_label(preview_job.status)} · ${format_percent(preview_job.progress)}` : '等待提交'}</b></div>
+            </div>
+          </div>
+
+          {active_tab === 'upload' ? (
+            <div className='import-tab-panel'>
+              <label className='file-pick'>
+                <input
+                  multiple
+                  onChange={(event) => set_files(Array.from(event.target.files ?? []))}
+                  type='file'
+                />
+                <span className='file-pick-button'>选择文件</span>
+                <span className='file-pick-name'>{files.length ? `已选择 ${files.length} 个文件` : '支持 txt、md、json 等文本文件'}</span>
+              </label>
+              <div className='selected-file-list'>
+                {files.map((file) => (
+                  <div key={`${file.name}-${file.size}-${file.lastModified}`}>
+                    <span>{file.name}</span>
+                    <small>{(file.size / 1024).toFixed(1)} KB</small>
+                  </div>
+                ))}
+                {!files.length ? <p className='muted'>暂无待上传文件。</p> : null}
+              </div>
+              <div className='button-row'>
+                <button disabled={busy} onClick={() => void submit_upload()} type='button'>提交上传任务</button>
+                <button disabled={busy || !files.length} onClick={() => set_files([])} type='button'>清空文件</button>
               </div>
             </div>
-          </article>
-        ))}
-        {!jobs.length ? <p className='muted'>暂无导入任务。</p> : null}
+          ) : null}
+
+          {active_tab === 'paste' ? (
+            <div className='import-tab-panel'>
+              <label className='field'>
+                <span>标题</span>
+                <input onChange={(event) => set_title(event.target.value)} value={title} />
+              </label>
+              <label className='field'>
+                <span>正文</span>
+                <textarea onChange={(event) => set_content(event.target.value)} rows={7} value={content} />
+              </label>
+              <button disabled={busy} onClick={() => void submit_paste()} type='button'>提交粘贴任务</button>
+            </div>
+          ) : null}
+
+          {active_tab === 'scan' ? (
+            <div className='import-tab-panel'>
+              <label className='field'>
+                <span>根路径</span>
+                <input onChange={(event) => set_root_path(event.target.value)} value={root_path} />
+              </label>
+              <label className='field'>
+                <span>Glob</span>
+                <input onChange={(event) => set_glob_pattern(event.target.value)} value={glob_pattern} />
+              </label>
+              <button disabled={busy} onClick={() => void submit_scan()} type='button'>提交扫描任务</button>
+            </div>
+          ) : null}
+
+          {message ? <p className='inline-message'>{message}</p> : null}
+        </div>
+
+        <div className='task-board'>
+          <div className='section-heading'>
+            <span>任务队列</span>
+            <small className='muted'>最近 50 个任务</small>
+          </div>
+          <div className='task-column'>
+            <strong>运行中</strong>
+            <div className='task-list-compact'>
+              {grouped_jobs.running.length ? grouped_jobs.running.map(render_job_card) : <p className='muted'>暂无运行任务。</p>}
+            </div>
+          </div>
+          <div className='task-column'>
+            <strong>排队中</strong>
+            <div className='task-list-compact'>
+              {grouped_jobs.queued.length ? grouped_jobs.queued.map(render_job_card) : <p className='muted'>暂无排队任务。</p>}
+            </div>
+          </div>
+          <div className='task-column'>
+            <strong>最近完成</strong>
+            <div className='task-list-compact'>
+              {grouped_jobs.recent.length ? grouped_jobs.recent.map(render_job_card) : <p className='muted'>暂无历史任务。</p>}
+            </div>
+          </div>
+        </div>
+
+        <div className='import-detail-panel'>
+          <div className='section-heading'>
+            <span>任务详情</span>
+            {selected_job ? <small className='muted'>{format_date(selected_job.updated_at)}</small> : null}
+          </div>
+
+          {selected_job ? (
+            <>
+              <div className='detail-block'>
+                <strong>{source_label(selected_job.source)}</strong>
+                <div><span>任务 ID</span><b>{selected_job.id}</b></div>
+                <div><span>状态</span><b>{status_label(selected_job.status)} · {step_label(selected_job.current_step)}</b></div>
+                <div><span>策略</span><b>{selected_job.strategy}</b></div>
+                {selected_job.error ? <p className='is-danger'>{selected_job.error}</p> : null}
+                {selected_job.message ? <p>{selected_job.message}</p> : null}
+                <span className='progress-track'><i style={{ width: format_percent(selected_job.progress) }} /></span>
+              </div>
+
+              <div className='metric-grid'>
+                <div><span>文件</span><b>{format_count(selected_job.completed_files, selected_job.total_files)}</b></div>
+                <div><span>失败文件</span><b>{selected_job.failed_files}</b></div>
+                <div><span>分块</span><b>{format_count(selected_job.completed_chunks, selected_job.total_chunks)}</b></div>
+                <div><span>失败分块</span><b>{selected_job.failed_chunks}</b></div>
+              </div>
+
+              <div className='button-row'>
+                <button
+                  disabled={busy || !CANCELABLE_STATUSES.has(selected_job.status)}
+                  onClick={() => void cancel_job(selected_job.id)}
+                  type='button'
+                >
+                  取消任务
+                </button>
+                <button disabled={busy} onClick={() => void retry_job(selected_job.id)} type='button'>重试失败项</button>
+              </div>
+
+              <div className='import-detail-grid'>
+                <div>
+                  <div className='section-heading'>
+                    <span>文件级状态</span>
+                    <small className='muted'>{selected_job.files.length} 个文件</small>
+                  </div>
+                  <div className='import-table-scroll'>
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>文件</th>
+                          <th>模式</th>
+                          <th>状态</th>
+                          <th>步骤</th>
+                          <th>进度</th>
+                          <th>分块</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {selected_job.files.map(render_file_row)}
+                        {!selected_job.files.length ? (
+                          <tr><td colSpan={6}>暂无文件明细。</td></tr>
+                        ) : null}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                <div>
+                  <div className='section-heading'>
+                    <span>分块级状态</span>
+                    <small className='muted'>{selected_file ? selected_file.name : '未选择文件'}</small>
+                  </div>
+                  <div className='import-table-scroll'>
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>#</th>
+                          <th>类型</th>
+                          <th>状态</th>
+                          <th>步骤</th>
+                          <th>预览</th>
+                          <th>错误</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {chunks.map((chunk) => (
+                          <tr key={chunk.id}>
+                            <td>{chunk.chunk_index}</td>
+                            <td>{chunk.chunk_type}</td>
+                            <td><span className={`status-badge ${status_class(chunk.status)}`}>{status_label(chunk.status)}</span></td>
+                            <td>{step_label(chunk.step)}</td>
+                            <td>{chunk.content_preview ?? '-'}</td>
+                            <td>{chunk.error ?? '-'}</td>
+                          </tr>
+                        ))}
+                        {!chunks.length ? (
+                          <tr><td colSpan={6}>暂无分块明细。</td></tr>
+                        ) : null}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            </>
+          ) : (
+            <p className='muted'>请选择任务查看详情。</p>
+          )}
+        </div>
       </div>
     </section>
   );
