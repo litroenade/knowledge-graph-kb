@@ -23,13 +23,20 @@ interface GraphSettingsPanelProps {
   on_release_all: () => void;
 }
 
+function hover_description(text: string) {
+  return {
+    'data-tooltip': text,
+    title: text,
+  };
+}
+
 export function GraphSettingsPanel(props: GraphSettingsPanelProps) {
   return (
-    <section className='control-section panel-body'>
+    <section className='control-section panel-body graph-settings-panel'>
       <div className='section-heading'>
-        <span>Obsidian 图谱控制</span>
+        <span>图谱控制</span>
       </div>
-      <label className='field is-inline'>
+      <label className='field is-inline' {...hover_description('显示或隐藏图谱中的节点标签')}>
         <span>标签</span>
         <input
           checked={props.show_labels}
@@ -37,7 +44,7 @@ export function GraphSettingsPanel(props: GraphSettingsPanelProps) {
           type='checkbox'
         />
       </label>
-      <label className='field'>
+      <label className='field' {...hover_description('控制当前图谱的节点显示比例，越高显示越完整')}>
         <span>密度 {props.density}%</span>
         <input
           max='100'
@@ -47,7 +54,7 @@ export function GraphSettingsPanel(props: GraphSettingsPanelProps) {
           value={props.density}
         />
       </label>
-      <label className='field'>
+      <label className='field' {...hover_description('局部图模式下，从选中节点向外展开的关系层数')}>
         <span>局部深度 {props.local_depth}</span>
         <input
           max='3'
@@ -57,7 +64,7 @@ export function GraphSettingsPanel(props: GraphSettingsPanelProps) {
           value={props.local_depth}
         />
       </label>
-      <label className='field'>
+      <label className='field' {...hover_description('调整物理布局中关系线期望长度')}>
         <span>连接距离 {props.link_distance}</span>
         <input
           max='180'
@@ -67,7 +74,7 @@ export function GraphSettingsPanel(props: GraphSettingsPanelProps) {
           value={props.link_distance}
         />
       </label>
-      <label className='field'>
+      <label className='field' {...hover_description('调整节点之间的排斥力，数值越大越分散')}>
         <span>斥力 {props.repulsion}</span>
         <input
           max='360'
@@ -83,7 +90,7 @@ export function GraphSettingsPanel(props: GraphSettingsPanelProps) {
           <span>布局</span>
           <b>{props.fixed_node_count} 固定</b>
         </div>
-        <label className='field is-inline'>
+        <label className='field is-inline' {...hover_description('开启后，拖拽和固定状态会自动保存到当前图谱范围')}>
           <span>自动保存</span>
           <input
             checked={props.auto_save_layout}
@@ -92,15 +99,15 @@ export function GraphSettingsPanel(props: GraphSettingsPanelProps) {
           />
         </label>
         <div className='button-row'>
-          <button onClick={props.on_save_layout} type='button'>保存布局</button>
-          <button onClick={props.on_restore_layout} type='button'>恢复布局</button>
-          <button onClick={props.on_reset_layout} type='button'>重置布局</button>
+          <button {...hover_description('保存当前节点位置和固定状态')} onClick={props.on_save_layout} type='button'>保存布局</button>
+          <button {...hover_description('恢复当前范围最近保存的布局快照')} onClick={props.on_restore_layout} type='button'>恢复布局</button>
+          <button {...hover_description('清除当前范围布局快照并重新排布')} onClick={props.on_reset_layout} type='button'>重置布局</button>
         </div>
         <div className='button-row'>
-          <button disabled={!props.has_selected} onClick={props.on_fix_selected} type='button'>固定选中</button>
-          <button disabled={!props.has_selected} onClick={props.on_release_selected} type='button'>释放选中</button>
-          <button disabled={!props.has_selected} onClick={props.on_fix_neighborhood} type='button'>固定一度邻域</button>
-          <button onClick={props.on_release_all} type='button'>释放全部</button>
+          <button {...hover_description('固定当前选中节点；选中关系时固定两端节点')} disabled={!props.has_selected} onClick={props.on_fix_selected} type='button'>固定选中</button>
+          <button {...hover_description('让当前选中节点重新参与物理模拟')} disabled={!props.has_selected} onClick={props.on_release_selected} type='button'>释放选中</button>
+          <button {...hover_description('固定当前节点和一度邻居，保护核心骨架')} disabled={!props.has_selected} onClick={props.on_fix_neighborhood} type='button'>固定一度邻域</button>
+          <button {...hover_description('释放当前图内所有固定节点')} onClick={props.on_release_all} type='button'>释放全部</button>
         </div>
         <p className='inline-message'>{props.layout_status}</p>
       </div>

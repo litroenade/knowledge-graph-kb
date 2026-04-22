@@ -27,6 +27,19 @@ export interface GraphQueryPlanInput {
   view: GraphDataView;
 }
 
+export interface EvidenceAnchorViewChangeInput {
+  current_anchor: Selection;
+  next_view: GraphDataView;
+  selected: Selection;
+}
+
+export function resolve_evidence_anchor_on_view_change(input: EvidenceAnchorViewChangeInput): Selection {
+  if (input.next_view !== 'evidence') {
+    return input.current_anchor;
+  }
+  return input.selected ?? input.current_anchor;
+}
+
 export function build_graph_query_plan(input: GraphQueryPlanInput): GraphQueryPlan {
   const anchor_node_ids = input.selected?.type === 'node' ? [input.selected.id] : [];
   const anchor_edge_ids = input.selected?.type === 'edge' ? [input.selected.id] : [];

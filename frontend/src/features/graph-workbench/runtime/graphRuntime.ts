@@ -312,6 +312,10 @@ export class GraphRuntime {
     const bounds = this.resolve_bounds(ids);
     if (bounds) {
       this.apply_bounds(bounds, 0.22);
+      return;
+    }
+    if (ids.length > 0) {
+      this.fit_all(0.18);
     }
   }
 
