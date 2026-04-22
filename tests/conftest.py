@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from pathlib import Path
 from threading import Event
@@ -8,8 +8,8 @@ from fastapi.testclient import TestClient
 
 from src import create_app
 from src.config import get_settings
-from src.kb.application.imports.service import ImportExecutor
-from src.kb.providers.openai import OpenAiGateway
+from src.kb.use_cases.imports.service import ImportExecutor
+from src.kb.infrastructure.providers.openai import OpenAiGateway
 
 
 def _fake_generate_embeddings(self: OpenAiGateway, texts: list[str]) -> list[list[float]]:
@@ -98,3 +98,4 @@ def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> TestClient:
     with TestClient(app) as test_client:
         yield test_client
     get_settings.cache_clear()
+

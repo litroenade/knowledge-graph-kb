@@ -1,8 +1,8 @@
-from threading import Event
+﻿from threading import Event
 
 from fastapi.testclient import TestClient
 
-from src.kb.application.imports.service import ImportCancelledError
+from src.kb.use_cases.imports.service import ImportCancelledError
 
 
 def test_cancel_job_transitions_from_cancelling_to_cancelled(client: TestClient, monkeypatch) -> None:
@@ -60,3 +60,4 @@ def test_cancel_job_transitions_from_cancelling_to_cancelled(client: TestClient,
     assert final_job["current_step"] == "cancelled"
     assert final_job["finished_at"] is not None
     assert final_job["files"][0]["status"] == "cancelled"
+

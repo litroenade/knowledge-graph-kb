@@ -1,9 +1,9 @@
-from pathlib import Path
+﻿from pathlib import Path
 
 from fastapi.testclient import TestClient
 
 from src.config import Settings
-from src.kb.application.services import restore_backup
+from src.kb.use_cases.services import restore_backup
 
 
 def import_sample_source(client: TestClient) -> dict:
@@ -137,3 +137,4 @@ def test_graph_keeps_relations_visible_and_isolates_entities_per_source(client: 
     assert entity_ids_one.isdisjoint(entity_ids_two)
     assert any(edge["type"] == "relation" for edge in graph_one["edges"])
     assert any(edge["type"] == "relation" for edge in graph_two["edges"])
+

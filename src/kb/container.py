@@ -1,12 +1,12 @@
-"""知识库运行时对象的依赖注入容器。"""
+﻿"""知识库运行时对象的依赖注入容器。"""
 
 from dataclasses import dataclass
 
 from src.config import Settings, ensure_app_dirs
-from src.kb.application.imports import ImportExecutor, ImportPipeline, ImportService
-from src.kb.application.retrieval import GraphReranker, HybridAnswerRetriever, StructuredParagraphRetriever, VectorParagraphRetriever
-from src.kb.application.search import EntitySearchService, RecordSearchService, RelationSearchService, SourceSearchService
-from src.kb.application.services import (
+from src.kb.use_cases.imports import ImportExecutor, ImportPipeline, ImportService
+from src.kb.use_cases.retrieval import GraphReranker, HybridAnswerRetriever, StructuredParagraphRetriever, VectorParagraphRetriever
+from src.kb.use_cases.search import EntitySearchService, RecordSearchService, RelationSearchService, SourceSearchService
+from src.kb.use_cases.services import (
     AnswerService,
     ConversationService,
     GraphService,
@@ -14,9 +14,9 @@ from src.kb.application.services import (
     ModelConfigService,
     SourceService,
 )
-from src.kb.database import SQLiteGateway
-from src.kb.providers import OpenAiGateway
-from src.kb.storage import (
+from src.kb.infrastructure.database import SQLiteGateway
+from src.kb.infrastructure.providers import OpenAiGateway
+from src.kb.infrastructure.storage import (
     AnswerReadStore,
     ConversationStore,
     EntitySearchStore,
@@ -187,3 +187,4 @@ def build_knowledge_base_container(settings: Settings) -> KnowledgeBaseContainer
         maintenance_service=maintenance_service,
         import_service=import_service,
     )
+
