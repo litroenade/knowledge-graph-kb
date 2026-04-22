@@ -13,6 +13,7 @@ import { Viewport } from 'pixi-viewport';
 
 import type { GraphLayoutNodeSnapshot } from '../model/layoutPersistence';
 import type { Neighborhood, RenderEdge, RenderNode, RuntimeProfile, Selection } from '../model/graphModel';
+import { resolve_fixed_neighborhood_node_ids, resolve_node_visual_state } from '../model/nodeVisuals';
 
 export interface GraphRuntimeScene {
   nodes: RenderNode[];
@@ -246,10 +247,7 @@ export class GraphRuntime {
     if (!this.scene?.selected) {
       return;
     }
-    this.fix_nodes([
-      ...this.scene.neighborhood.primary_node_ids,
-      ...this.scene.neighborhood.secondary_node_ids,
-    ]);
+    this.fix_nodes(resolve_fixed_neighborhood_node_ids(this.scene.neighborhood));
   }
 
   release_all_fixed(): void {
@@ -433,15 +431,30 @@ export class GraphRuntime {
     const selected = this.scene?.selected?.type === 'node' && this.scene.selected.id === node.id;
     const active = contextual.size === 0 || contextual.has(node.id);
     const secondary = this.scene?.neighborhood.secondary_node_ids.has(node.id) ?? false;
-    this.node_layer.circle(point.x, point.y, node.radius + (selected ? 5 : 0)).fill({
-      color: selected ? 0xffffff : node.color,
-      alpha: selected ? 0.98 : active ? (secondary ? 0.54 : 0.86) : 0.12,
+    const visual = resolve_node_visual_state({
+      active,
+      color: node.color,
+      fixed: this.fixed_node_ids.has(node.id),
+      secondary,
+      selected,
     });
-    if (selected || active) {
-      this.node_layer.circle(point.x, point.y, node.radius + 6).stroke({
-        color: selected ? 0xbae6fd : node.color,
-        width: selected ? 2.4 : 1.2,
-        alpha: selected ? 0.9 : 0.34,
+
+    this.node_layer.circle(point.x, point.y, node.radius + visual.fill.offset).fill({
+      color: visual.fill.color,
+      alpha: visual.fill.alpha,
+    });
+    if (visual.base_ring) {
+      this.node_layer.circle(point.x, point.y, node.radius + visual.base_ring.offset).stroke({
+        color: visual.base_ring.color,
+        width: visual.base_ring.width,
+        alpha: visual.base_ring.alpha,
+      });
+    }
+    if (visual.fixed_ring) {
+      this.node_layer.circle(point.x, point.y, node.radius + visual.fixed_ring.offset).stroke({
+        color: visual.fixed_ring.color,
+        width: visual.fixed_ring.width,
+        alpha: visual.fixed_ring.alpha,
       });
     }
   }

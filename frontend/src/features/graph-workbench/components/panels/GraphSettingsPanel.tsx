@@ -99,7 +99,7 @@ export function GraphSettingsPanel(props: GraphSettingsPanelProps) {
         <div className='button-row'>
           <button disabled={!props.has_selected} onClick={props.on_fix_selected} type='button'>固定选中</button>
           <button disabled={!props.has_selected} onClick={props.on_release_selected} type='button'>释放选中</button>
-          <button disabled={!props.has_selected} onClick={props.on_fix_neighborhood} type='button'>固定邻域</button>
+          <button disabled={!props.has_selected} onClick={props.on_fix_neighborhood} type='button'>固定一度邻域</button>
           <button onClick={props.on_release_all} type='button'>释放全部</button>
         </div>
         <p className='inline-message'>{props.layout_status}</p>
