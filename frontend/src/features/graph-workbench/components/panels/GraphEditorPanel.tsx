@@ -9,6 +9,7 @@ import {
   fetch_manual_relations,
   rename_graph_node,
 } from '../../../../shared/api/kb';
+import { to_user_error_message } from '../../../../shared/api/errorMessages';
 import type { KnowledgeGraph, ManualRelationItem, SourceItem } from '../../../../shared/types/kb';
 import type { RenderEdge, RenderNode } from '../../model/graphModel';
 import { format_date } from './formatters';
@@ -46,8 +47,13 @@ export function GraphEditorPanel(props: GraphEditorPanelProps) {
   }, []);
 
   useEffect(() => {
-    void load_manual_relations().catch((error) => set_message((error as Error).message));
+    void refresh_manual_relations();
   }, [load_manual_relations]);
+
+  function refresh_manual_relations(): void {
+    set_message(null);
+    void load_manual_relations().catch((error) => set_message(to_user_error_message(error, 'graph-editor')));
+  }
 
   useEffect(() => {
     if (props.selected_node) {
@@ -65,7 +71,7 @@ export function GraphEditorPanel(props: GraphEditorPanelProps) {
       await load_manual_relations();
       await props.on_mutation();
     } catch (error) {
-      set_message((error as Error).message);
+      set_message(to_user_error_message(error, 'graph-editor'));
     } finally {
       set_busy(false);
     }
@@ -152,7 +158,7 @@ export function GraphEditorPanel(props: GraphEditorPanelProps) {
     <section className='panel-body editor-panel'>
       <div className='section-heading'>
         <span>节点 / 关系编辑</span>
-        <button disabled={busy} onClick={() => void load_manual_relations()} type='button'>刷新</button>
+        <button disabled={busy} onClick={refresh_manual_relations} type='button'>刷新</button>
       </div>
 
       <div className='stacked-tool'>

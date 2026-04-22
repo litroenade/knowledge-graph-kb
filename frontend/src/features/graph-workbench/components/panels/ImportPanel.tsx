@@ -8,6 +8,7 @@ import {
   scan_import,
   upload_import_files,
 } from '../../../../shared/api/kb';
+import { to_user_error_message } from '../../../../shared/api/errorMessages';
 import type { ImportJobItem } from '../../../../shared/types/kb';
 import { format_date, format_percent } from './formatters';
 
@@ -32,8 +33,13 @@ export function ImportPanel(props: ImportPanelProps) {
   }, []);
 
   useEffect(() => {
-    void load_jobs().catch((error) => set_message((error as Error).message));
+    void refresh_jobs();
   }, [load_jobs]);
+
+  function refresh_jobs(): void {
+    set_message(null);
+    void load_jobs().catch((error) => set_message(to_user_error_message(error, 'import')));
+  }
 
   async function run_action(action: () => Promise<unknown>, success: string): Promise<void> {
     set_busy(true);
@@ -44,7 +50,7 @@ export function ImportPanel(props: ImportPanelProps) {
       await load_jobs();
       props.on_import_finished();
     } catch (error) {
-      set_message((error as Error).message);
+      set_message(to_user_error_message(error, 'import'));
     } finally {
       set_busy(false);
     }
@@ -95,7 +101,7 @@ export function ImportPanel(props: ImportPanelProps) {
     <section className='panel-body import-panel'>
       <div className='section-heading'>
         <span>导入中心</span>
-        <button disabled={busy} onClick={() => void load_jobs()} type='button'>刷新</button>
+        <button disabled={busy} onClick={refresh_jobs} type='button'>刷新</button>
       </div>
 
       <div className='form-grid'>

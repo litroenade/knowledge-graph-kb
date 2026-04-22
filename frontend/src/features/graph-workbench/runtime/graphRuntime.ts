@@ -93,6 +93,7 @@ export class GraphRuntime {
   private render_timer: number | null = null;
   private dragging_node: DragState | null = null;
   private auto_freeze_timer: number | null = null;
+  private readonly handle_window_blur = () => this.finish_active_drag();
 
   constructor(container: HTMLDivElement, callbacks: GraphRuntimeCallbacks) {
     this.container = container;
@@ -139,11 +140,13 @@ export class GraphRuntime {
     viewport.on('pointermove', (event: FederatedPointerEvent) => this.handle_pointer_move(event));
     viewport.on('pointerup', (event: FederatedPointerEvent) => this.handle_pointer_up(event));
     viewport.on('pointerupoutside', (event: FederatedPointerEvent) => this.handle_pointer_up(event));
+    viewport.on('pointercancel', (event: FederatedPointerEvent) => this.handle_pointer_cancel(event));
     viewport.on('pointerleave', () => this.set_hover(null, null));
     viewport.on('pointertap', (event: FederatedPointerEvent) => this.handle_pointer_tap(event));
     viewport.on('moved', () => this.schedule_render());
     viewport.on('zoomed', () => this.schedule_render());
     app.stage.addChild(viewport);
+    window.addEventListener('blur', this.handle_window_blur);
 
     this.app = app;
     this.viewport = viewport;
@@ -156,6 +159,7 @@ export class GraphRuntime {
     }
     this.clear_auto_freeze_timer();
     this.callbacks.on_hover_change(null);
+    window.removeEventListener('blur', this.handle_window_blur);
     this.viewport?.removeAllListeners();
     this.viewport?.destroy({ children: true });
     this.app?.destroy({ removeView: true }, false);
@@ -525,11 +529,29 @@ export class GraphRuntime {
       return;
     }
     event.stopPropagation();
+    this.finish_active_drag();
+  }
+
+  private handle_pointer_cancel(event: FederatedPointerEvent): void {
+    if (!this.dragging_node || event.pointerId !== this.dragging_node.pointer_id) {
+      return;
+    }
+    event.stopPropagation();
+    this.finish_active_drag();
+  }
+
+  private finish_active_drag(): void {
+    if (!this.dragging_node) {
+      return;
+    }
     const dragged_node_id = this.dragging_node.node_id;
     this.viewport?.plugins.resume('drag');
     this.dragging_node = null;
     this.simulation?.alphaTarget(0);
     this.fixed_node_ids.add(dragged_node_id);
+    if (this.app) {
+      this.app.canvas.style.cursor = 'grab';
+    }
     this.emit_layout_change();
     this.render();
   }

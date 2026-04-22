@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 
+import { to_user_error_message } from '../../../shared/api/errorMessages';
 import type { GraphLayoutNodeSnapshot } from '../model/layoutPersistence';
 import type { RuntimeProfile, Selection } from '../model/graphModel';
 import type { Neighborhood, RenderEdge, RenderNode } from '../model/graphModel';
@@ -96,7 +97,7 @@ export function GraphCanvas(props: GraphCanvasProps) {
       })
       .catch((current_error) => {
         if (!disposed) {
-          set_error((current_error as Error).message || '图谱渲染失败');
+          set_error(to_user_error_message(current_error, 'graph-render'));
         }
       });
 

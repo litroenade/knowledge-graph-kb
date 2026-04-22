@@ -358,7 +358,6 @@ export function GraphWorkbench() {
     <main className='workbench-shell'>
       <aside className='left-rail'>
         <section className='brand-block'>
-          <span>A_Memorix</span>
           <strong>知识图谱</strong>
         </section>
 

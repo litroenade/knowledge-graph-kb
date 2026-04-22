@@ -11,6 +11,18 @@
 - 已完成第一版：证据图空锚点不再请求 `/api/kb/graph`，改为前端空态提示，避免无效 400。
 - 已完成第一版：派生边详情 404 降级为检查器内提示，不再污染全局错误状态。
 - 已完成第一版：后端未启动、图谱请求参数错误、来源详情不可用、模型配置不可用统一转换为面向用户的错误文案。
+- 已完成第一版：Chat / Import / GraphEditor / GraphCanvas 统一接入产品化错误提示。
+- 已完成第一版：Chat 会话列表加载避免因设置 active session 触发重复请求。
+- 已完成第一版：节点拖拽增加 `pointercancel` 和窗口失焦兜底，避免 viewport drag 残留暂停状态。
+
+## 当前问题跟踪
+
+- 已处理：Chat、Import、GraphEditor 仍直接展示底层 `Error.message`。
+- 已处理：GraphCanvas 渲染初始化失败时直接暴露 Pixi/WebGL 错误。
+- 已处理：ChatPanel `load_sessions` 依赖 `active_session_id`，首次加载后会额外触发一次会话列表请求。
+- 已处理：节点拖拽缺少 `pointercancel` / window blur 收尾，极端情况下可能导致画布拖拽未恢复。
+- 暂缓：`graphRuntime.ts` 仍偏重，后续再按 simulation / hit testing / rendering / viewport 分层拆。
+- 观察：历史 dev 日志里出现 TanStack 依赖缺失，但当前 `frontend/src/features/knowledge_base` 已不存在，现入口只挂 `graph-workbench`。
 
 ## 当前状态
 
@@ -410,9 +422,9 @@ pnpm build
 
 后续加固：
 
-- 增加 `pointercancel` 清理。
-- 增加窗口 blur 清理。
-- 拖拽状态异常时强制恢复 viewport drag。
+- 已增加 `pointercancel` 清理。
+- 已增加窗口 blur 清理。
+- 后续继续观察拖拽状态异常时 viewport drag 是否稳定恢复。
 
 ### 3. 自动保存不能绑定 force tick
 

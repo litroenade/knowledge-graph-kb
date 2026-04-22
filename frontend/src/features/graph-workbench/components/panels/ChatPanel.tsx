@@ -10,6 +10,7 @@ import {
   search_sources,
   send_chat_message,
 } from '../../../../shared/api/kb';
+import { to_user_error_message } from '../../../../shared/api/errorMessages';
 import type {
   ChatMessageItem,
   ChatSessionItem,
@@ -43,13 +44,11 @@ export function ChatPanel(props: ChatPanelProps) {
   const load_sessions = useCallback(async () => {
     const next_sessions = await fetch_chat_sessions(50);
     set_sessions(next_sessions);
-    if (!active_session_id && next_sessions[0]) {
-      set_active_session_id(next_sessions[0].id);
-    }
-  }, [active_session_id]);
+    set_active_session_id((current) => current ?? next_sessions[0]?.id ?? null);
+  }, []);
 
   useEffect(() => {
-    void load_sessions().catch((error) => set_message((error as Error).message));
+    void load_sessions().catch((error) => set_message(to_user_error_message(error, 'chat')));
   }, [load_sessions]);
 
   useEffect(() => {
@@ -66,7 +65,7 @@ export function ChatPanel(props: ChatPanelProps) {
       })
       .catch((error) => {
         if (!cancelled) {
-          set_message((error as Error).message);
+          set_message(to_user_error_message(error, 'chat'));
         }
       });
     return () => {
@@ -98,7 +97,7 @@ export function ChatPanel(props: ChatPanelProps) {
       set_active_session_id(session.id);
       set_messages([]);
     } catch (error) {
-      set_message((error as Error).message);
+      set_message(to_user_error_message(error, 'chat'));
     } finally {
       set_busy(false);
     }
@@ -124,7 +123,7 @@ export function ChatPanel(props: ChatPanelProps) {
         props.on_focus_node(highlight);
       }
     } catch (error) {
-      set_message((error as Error).message);
+      set_message(to_user_error_message(error, 'chat'));
     } finally {
       set_busy(false);
     }
@@ -142,7 +141,7 @@ export function ChatPanel(props: ChatPanelProps) {
       const results = await run_search(search_kind, query, props.scope);
       set_search_results(results);
     } catch (error) {
-      set_message((error as Error).message);
+      set_message(to_user_error_message(error, 'chat'));
     } finally {
       set_busy(false);
     }
@@ -172,7 +171,7 @@ export function ChatPanel(props: ChatPanelProps) {
         {active_session ? <p className='muted'>当前会话：{active_session.title || active_session.id} · {format_date(active_session.updated_at)}</p> : null}
         {messages.map((item) => (
           <article className={`chat-message is-${item.role}`} key={item.id}>
-            <strong>{item.role === 'user' ? '我' : 'A_Memorix'}</strong>
+            <strong>{item.role === 'user' ? '我' : '助手'}</strong>
             <p>{item.content}</p>
             {item.error ? <p className='is-danger'>{item.error}</p> : null}
             {item.citations.length ? (
