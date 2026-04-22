@@ -4,11 +4,23 @@ interface GraphSettingsPanelProps {
   local_depth: number;
   link_distance: number;
   repulsion: number;
+  auto_save_layout: boolean;
+  fixed_node_count: number;
+  has_selected: boolean;
+  layout_status: string;
   on_show_labels_change: (value: boolean) => void;
   on_density_change: (value: number) => void;
   on_local_depth_change: (value: number) => void;
   on_link_distance_change: (value: number) => void;
   on_repulsion_change: (value: number) => void;
+  on_auto_save_layout_change: (value: boolean) => void;
+  on_save_layout: () => void;
+  on_restore_layout: () => void;
+  on_reset_layout: () => void;
+  on_fix_selected: () => void;
+  on_release_selected: () => void;
+  on_fix_neighborhood: () => void;
+  on_release_all: () => void;
 }
 
 export function GraphSettingsPanel(props: GraphSettingsPanelProps) {
@@ -65,6 +77,33 @@ export function GraphSettingsPanel(props: GraphSettingsPanelProps) {
           value={props.repulsion}
         />
       </label>
+
+      <div className='layout-tool'>
+        <div className='section-heading'>
+          <span>布局</span>
+          <b>{props.fixed_node_count} 固定</b>
+        </div>
+        <label className='field is-inline'>
+          <span>自动保存</span>
+          <input
+            checked={props.auto_save_layout}
+            onChange={(event) => props.on_auto_save_layout_change(event.target.checked)}
+            type='checkbox'
+          />
+        </label>
+        <div className='button-row'>
+          <button onClick={props.on_save_layout} type='button'>保存布局</button>
+          <button onClick={props.on_restore_layout} type='button'>恢复布局</button>
+          <button onClick={props.on_reset_layout} type='button'>重置布局</button>
+        </div>
+        <div className='button-row'>
+          <button disabled={!props.has_selected} onClick={props.on_fix_selected} type='button'>固定选中</button>
+          <button disabled={!props.has_selected} onClick={props.on_release_selected} type='button'>释放选中</button>
+          <button disabled={!props.has_selected} onClick={props.on_fix_neighborhood} type='button'>固定邻域</button>
+          <button onClick={props.on_release_all} type='button'>释放全部</button>
+        </div>
+        <p className='inline-message'>{props.layout_status}</p>
+      </div>
     </section>
   );
 }

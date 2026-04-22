@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { fetch_model_config, test_model_config, update_model_config } from '../../../../shared/api/kb';
+import { to_user_error_message } from '../../../../shared/api/errorMessages';
 import type { ModelConfigResponse, ModelConfigTestResponse, SystemReady } from '../../../../shared/types/kb';
 import { stringify_detail } from './formatters';
 
@@ -34,7 +35,7 @@ export function ModelConfigPanel(props: ModelConfigPanelProps) {
   }, []);
 
   useEffect(() => {
-    void load_config().catch((error) => set_message((error as Error).message));
+    void load_config().catch((error) => set_message(to_user_error_message(error, 'model-config')));
   }, [load_config]);
 
   const vector_check = useMemo(
@@ -59,7 +60,7 @@ export function ModelConfigPanel(props: ModelConfigPanelProps) {
       props.on_saved();
       set_message(next_config.reindex_required ? '配置已保存，后端提示需要重建向量索引。' : '配置已保存。');
     } catch (error) {
-      set_message((error as Error).message);
+      set_message(to_user_error_message(error, 'model-config'));
     } finally {
       set_busy(false);
     }
@@ -80,17 +81,22 @@ export function ModelConfigPanel(props: ModelConfigPanelProps) {
       set_test_result(result);
       set_message(result.message);
     } catch (error) {
-      set_message((error as Error).message);
+      set_message(to_user_error_message(error, 'model-config'));
     } finally {
       set_busy(false);
     }
+  }
+
+  function refresh_config(): void {
+    set_message(null);
+    void load_config().catch((error) => set_message(to_user_error_message(error, 'model-config')));
   }
 
   return (
     <section className='panel-body model-panel'>
       <div className='section-heading'>
         <span>模型配置</span>
-        <button disabled={busy} onClick={() => void load_config()} type='button'>刷新</button>
+        <button disabled={busy} onClick={refresh_config} type='button'>刷新</button>
       </div>
 
       <div className='form-grid'>

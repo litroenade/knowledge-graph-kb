@@ -11,6 +11,7 @@ import {
 import { Application, Container, Graphics, Rectangle, Text, TextStyle, type FederatedPointerEvent } from 'pixi.js';
 import { Viewport } from 'pixi-viewport';
 
+import type { GraphLayoutNodeSnapshot } from '../model/layoutPersistence';
 import type { Neighborhood, RenderEdge, RenderNode, RuntimeProfile, Selection } from '../model/graphModel';
 
 export interface GraphRuntimeScene {
@@ -39,11 +40,15 @@ export interface GraphRuntimeCallbacks {
   on_select_edge: (edge_id: string) => void;
   on_clear_selection: () => void;
   on_hover_change: (payload: HoverPayload | null) => void;
+  on_layout_change: (nodes: GraphLayoutNodeSnapshot[]) => void;
+  on_physics_auto_stop: () => void;
 }
 
 interface SimNode extends SimulationNodeDatum {
   id: string;
   radius: number;
+  fx?: number | null;
+  fy?: number | null;
 }
 
 interface SimEdge extends SimulationLinkDatum<SimNode> {
@@ -56,6 +61,14 @@ type HitTarget =
   | { type: 'edge'; edge: RenderEdge }
   | null;
 
+interface DragState {
+  node_id: string;
+  pointer_id: number;
+  start_x: number;
+  start_y: number;
+  moved: boolean;
+}
+
 const LABEL_STYLE = new TextStyle({
   fontFamily: 'Inter, Microsoft YaHei UI, PingFang SC, system-ui, sans-serif',
   fontSize: 12,
@@ -65,7 +78,7 @@ const LABEL_STYLE = new TextStyle({
 
 export class GraphRuntime {
   private readonly container: HTMLDivElement;
-  private readonly callbacks: GraphRuntimeCallbacks;
+  private callbacks: GraphRuntimeCallbacks;
   private app: Application | null = null;
   private viewport: Viewport | null = null;
   private edge_layer = new Graphics();
@@ -73,12 +86,20 @@ export class GraphRuntime {
   private label_layer = new Container();
   private scene: GraphRuntimeScene | null = null;
   private positions = new Map<string, { x: number; y: number }>();
+  private fixed_node_ids = new Set<string>();
+  private sim_nodes = new Map<string, SimNode>();
   private simulation: Simulation<SimNode, SimEdge> | null = null;
   private hover: HitTarget = null;
   private render_timer: number | null = null;
+  private dragging_node: DragState | null = null;
+  private auto_freeze_timer: number | null = null;
 
   constructor(container: HTMLDivElement, callbacks: GraphRuntimeCallbacks) {
     this.container = container;
+    this.callbacks = callbacks;
+  }
+
+  set_callbacks(callbacks: GraphRuntimeCallbacks): void {
     this.callbacks = callbacks;
   }
 
@@ -114,7 +135,10 @@ export class GraphRuntime {
     viewport.forceHitArea = new Rectangle(-80000, -80000, 160000, 160000);
     viewport.drag().pinch().wheel({ smooth: 4 }).decelerate().clampZoom({ minScale: 0.06, maxScale: 4 });
     viewport.addChild(this.edge_layer, this.node_layer, this.label_layer);
+    viewport.on('pointerdown', (event: FederatedPointerEvent) => this.handle_pointer_down(event));
     viewport.on('pointermove', (event: FederatedPointerEvent) => this.handle_pointer_move(event));
+    viewport.on('pointerup', (event: FederatedPointerEvent) => this.handle_pointer_up(event));
+    viewport.on('pointerupoutside', (event: FederatedPointerEvent) => this.handle_pointer_up(event));
     viewport.on('pointerleave', () => this.set_hover(null, null));
     viewport.on('pointertap', (event: FederatedPointerEvent) => this.handle_pointer_tap(event));
     viewport.on('moved', () => this.schedule_render());
@@ -130,12 +154,102 @@ export class GraphRuntime {
     if (this.render_timer !== null) {
       window.clearTimeout(this.render_timer);
     }
+    this.clear_auto_freeze_timer();
     this.callbacks.on_hover_change(null);
     this.viewport?.removeAllListeners();
     this.viewport?.destroy({ children: true });
     this.app?.destroy({ removeView: true }, false);
     this.app = null;
     this.viewport = null;
+  }
+
+  get_layout_snapshot(): GraphLayoutNodeSnapshot[] {
+    return (this.scene?.nodes ?? []).map((node) => {
+      const point = this.positions.get(node.id) ?? { x: 0, y: 0 };
+      return {
+        id: node.id,
+        x: point.x,
+        y: point.y,
+        fixed: this.fixed_node_ids.has(node.id),
+      };
+    });
+  }
+
+  apply_layout_snapshot(nodes: GraphLayoutNodeSnapshot[]): void {
+    if (!this.scene) {
+      return;
+    }
+    const current_node_ids = new Set(this.scene.nodes.map((node) => node.id));
+    this.fixed_node_ids.clear();
+    nodes.forEach((node) => {
+      if (!current_node_ids.has(node.id) || !Number.isFinite(node.x) || !Number.isFinite(node.y)) {
+        return;
+      }
+      this.positions.set(node.id, { x: node.x, y: node.y });
+      if (node.fixed) {
+        this.fixed_node_ids.add(node.id);
+      }
+    });
+    this.sync_simulation(true);
+    this.render();
+    this.emit_layout_change();
+  }
+
+  reset_layout(): void {
+    if (!this.scene) {
+      return;
+    }
+    this.positions.clear();
+    this.fixed_node_ids.clear();
+    this.scene.nodes.forEach((node, index) => {
+      this.positions.set(node.id, spiral_position(index, this.scene?.nodes.length ?? 1));
+    });
+    this.sync_simulation(true);
+    this.render();
+    this.fit_all();
+    this.emit_layout_change();
+  }
+
+  fix_selection(): void {
+    if (!this.scene?.selected) {
+      return;
+    }
+    if (this.scene.selected.type === 'node') {
+      this.fix_nodes([this.scene.selected.id]);
+      return;
+    }
+    const edge = this.scene.edges.find((item) => item.id === this.scene?.selected?.id);
+    if (edge) {
+      this.fix_nodes([edge.source, edge.target]);
+    }
+  }
+
+  release_selection(): void {
+    if (!this.scene?.selected) {
+      return;
+    }
+    if (this.scene.selected.type === 'node') {
+      this.release_nodes([this.scene.selected.id]);
+      return;
+    }
+    const edge = this.scene.edges.find((item) => item.id === this.scene?.selected?.id);
+    if (edge) {
+      this.release_nodes([edge.source, edge.target]);
+    }
+  }
+
+  fix_neighborhood(): void {
+    if (!this.scene?.selected) {
+      return;
+    }
+    this.fix_nodes([
+      ...this.scene.neighborhood.primary_node_ids,
+      ...this.scene.neighborhood.secondary_node_ids,
+    ]);
+  }
+
+  release_all_fixed(): void {
+    this.release_nodes([...this.fixed_node_ids]);
   }
 
   resize(): void {
@@ -158,7 +272,10 @@ export class GraphRuntime {
       }
       previous_ids.delete(node.id);
     });
-    previous_ids.forEach((node_id) => this.positions.delete(node_id));
+    previous_ids.forEach((node_id) => {
+      this.positions.delete(node_id);
+      this.fixed_node_ids.delete(node_id);
+    });
     this.sync_simulation();
     this.render();
     if (scene.profile.mode === 'static') {
@@ -207,6 +324,7 @@ export class GraphRuntime {
     this.sync_simulation(true);
     this.render();
     this.fit_all();
+    this.emit_layout_change();
   }
 
   private sync_simulation(force_restart = false): void {
@@ -215,15 +333,20 @@ export class GraphRuntime {
       this.stop_simulation();
       return;
     }
-    if (this.simulation && !force_restart) {
-      this.simulation.alpha(0.18).restart();
-      return;
-    }
     this.stop_simulation();
     const sim_nodes = scene.nodes.map((node) => {
       const point = this.positions.get(node.id) ?? { x: 0, y: 0 };
-      return { id: node.id, radius: node.radius, x: point.x, y: point.y };
+      const fixed = this.fixed_node_ids.has(node.id);
+      return {
+        id: node.id,
+        radius: node.radius,
+        x: point.x,
+        y: point.y,
+        fx: fixed ? point.x : null,
+        fy: fixed ? point.y : null,
+      };
     });
+    this.sim_nodes = new Map(sim_nodes.map((node) => [node.id, node]));
     const node_ids = new Set(scene.nodes.map((node) => node.id));
     const sim_edges = scene.edges
       .filter((edge) => node_ids.has(edge.source) && node_ids.has(edge.target))
@@ -250,11 +373,14 @@ export class GraphRuntime {
         this.render();
       })
       .on('end', () => this.render());
+    this.schedule_auto_freeze();
   }
 
   private stop_simulation(): void {
+    this.clear_auto_freeze_timer();
     this.simulation?.stop();
     this.simulation = null;
+    this.sim_nodes.clear();
   }
 
   private render(): void {
@@ -273,7 +399,7 @@ export class GraphRuntime {
 
     scene.edges.forEach((edge) => this.draw_edge(edge, contextual));
     scene.nodes.forEach((node) => this.draw_node(node, contextual));
-    if (scene.show_labels) {
+    if (scene.show_labels || contextual.size > 0) {
       scene.nodes.forEach((node) => this.draw_label(node, contextual));
     }
   }
@@ -341,14 +467,71 @@ export class GraphRuntime {
     this.label_layer.addChild(label);
   }
 
+  private handle_pointer_down(event: FederatedPointerEvent): void {
+    if (!this.viewport) {
+      return;
+    }
+    const point = this.viewport.toWorld(event.global);
+    const target = this.find_target(point.x, point.y);
+    if (target?.type !== 'node') {
+      return;
+    }
+    event.stopPropagation();
+    this.viewport.plugins.pause('drag');
+    this.dragging_node = {
+      node_id: target.node.id,
+      pointer_id: event.pointerId,
+      start_x: point.x,
+      start_y: point.y,
+      moved: false,
+    };
+    this.fixed_node_ids.add(target.node.id);
+    this.set_sim_node_fixed_position(target.node.id, point.x, point.y);
+    this.simulation?.alphaTarget(0.18).restart();
+    this.set_hover(null, null);
+  }
+
   private handle_pointer_move(event: FederatedPointerEvent): void {
     if (!this.viewport || !this.app) {
+      return;
+    }
+    if (this.dragging_node) {
+      this.handle_node_drag_move(event);
       return;
     }
     const point = this.viewport.toWorld(event.global);
     const target = this.find_target(point.x, point.y);
     this.app.canvas.style.cursor = target ? 'pointer' : 'grab';
     this.set_hover(target, event.global);
+  }
+
+  private handle_node_drag_move(event: FederatedPointerEvent): void {
+    if (!this.viewport || !this.app || !this.dragging_node || event.pointerId !== this.dragging_node.pointer_id) {
+      return;
+    }
+    event.stopPropagation();
+    const point = this.viewport.toWorld(event.global);
+    this.dragging_node.moved =
+      this.dragging_node.moved ||
+      Math.hypot(point.x - this.dragging_node.start_x, point.y - this.dragging_node.start_y) > 3;
+    this.positions.set(this.dragging_node.node_id, { x: point.x, y: point.y });
+    this.set_sim_node_fixed_position(this.dragging_node.node_id, point.x, point.y);
+    this.app.canvas.style.cursor = 'grabbing';
+    this.render();
+  }
+
+  private handle_pointer_up(event: FederatedPointerEvent): void {
+    if (!this.dragging_node || event.pointerId !== this.dragging_node.pointer_id) {
+      return;
+    }
+    event.stopPropagation();
+    const dragged_node_id = this.dragging_node.node_id;
+    this.viewport?.plugins.resume('drag');
+    this.dragging_node = null;
+    this.simulation?.alphaTarget(0);
+    this.fixed_node_ids.add(dragged_node_id);
+    this.emit_layout_change();
+    this.render();
   }
 
   private handle_pointer_tap(event: FederatedPointerEvent): void {
@@ -402,6 +585,70 @@ export class GraphRuntime {
     }
     const edge = find_edge_hit(this.scene?.edges ?? [], this.positions, x, y);
     return edge ? { type: 'edge', edge } : null;
+  }
+
+  private fix_nodes(node_ids: string[]): void {
+    node_ids.forEach((node_id) => {
+      const point = this.positions.get(node_id);
+      if (!point) {
+        return;
+      }
+      this.fixed_node_ids.add(node_id);
+      this.set_sim_node_fixed_position(node_id, point.x, point.y);
+    });
+    this.simulation?.alpha(0.18).restart();
+    this.render();
+    this.emit_layout_change();
+  }
+
+  private release_nodes(node_ids: string[]): void {
+    node_ids.forEach((node_id) => {
+      this.fixed_node_ids.delete(node_id);
+      const sim_node = this.sim_nodes.get(node_id);
+      if (sim_node) {
+        sim_node.fx = null;
+        sim_node.fy = null;
+      }
+    });
+    this.simulation?.alpha(0.24).restart();
+    this.render();
+    this.emit_layout_change();
+  }
+
+  private set_sim_node_fixed_position(node_id: string, x: number, y: number): void {
+    const sim_node = this.sim_nodes.get(node_id);
+    if (!sim_node) {
+      return;
+    }
+    sim_node.x = x;
+    sim_node.y = y;
+    sim_node.fx = x;
+    sim_node.fy = y;
+  }
+
+  private emit_layout_change(): void {
+    this.callbacks.on_layout_change(this.get_layout_snapshot());
+  }
+
+  private schedule_auto_freeze(): void {
+    this.clear_auto_freeze_timer();
+    if (this.scene?.profile.mode !== 'balanced') {
+      return;
+    }
+    this.auto_freeze_timer = window.setTimeout(() => {
+      this.auto_freeze_timer = null;
+      this.simulation?.stop();
+      this.simulation = null;
+      this.callbacks.on_physics_auto_stop();
+      this.render();
+    }, 8000);
+  }
+
+  private clear_auto_freeze_timer(): void {
+    if (this.auto_freeze_timer !== null) {
+      window.clearTimeout(this.auto_freeze_timer);
+      this.auto_freeze_timer = null;
+    }
   }
 
   private schedule_render(): void {

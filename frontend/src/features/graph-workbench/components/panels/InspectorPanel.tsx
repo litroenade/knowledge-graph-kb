@@ -9,6 +9,7 @@ interface InspectorPanelProps {
   selected_edge: RenderEdge | null;
   node_detail: GraphNodeDetail | null;
   edge_detail: GraphEdgeDetail | null;
+  detail_notice: string | null;
   on_clear_selection: () => void;
 }
 
@@ -19,6 +20,7 @@ export function InspectorPanel(props: InspectorPanelProps) {
     selected_edge,
     node_detail,
     edge_detail,
+    detail_notice,
     on_clear_selection,
   } = props;
 
@@ -60,6 +62,7 @@ export function InspectorPanel(props: InspectorPanelProps) {
       {edge_detail?.paragraph ? (
         <PreviewList title='关系证据' items={[preview_text(edge_detail.paragraph, '关系证据')]} />
       ) : null}
+      {detail_notice ? <p className='inline-message'>{detail_notice}</p> : null}
       <div className='capability-note'>
         <strong>待后端开放</strong>
         <p>回收站、记忆强化/保护/冷冻、向量重建目前没有 HTTP 路由；前端不会伪造不可调用的操作。</p>

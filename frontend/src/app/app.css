@@ -277,6 +277,11 @@ input[type='range'] {
   border-color: rgba(248, 113, 113, 0.42);
 }
 
+.status-strip .is-note {
+  color: var(--accent);
+  border-color: rgba(56, 189, 248, 0.35);
+}
+
 .is-danger {
   color: var(--danger);
 }
@@ -363,6 +368,7 @@ input[type='range'] {
 }
 
 .stacked-tool,
+.layout-tool,
 .capability-note,
 .job-item,
 .chat-message,
@@ -379,6 +385,7 @@ input[type='range'] {
 }
 
 .stacked-tool > strong,
+.layout-tool > strong,
 .relation-list > strong {
   color: var(--text);
 }

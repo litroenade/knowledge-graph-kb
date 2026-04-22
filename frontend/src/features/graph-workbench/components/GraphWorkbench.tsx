@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { DEFAULT_SCOPE, fetch_edge_detail, fetch_graph, fetch_node_detail, fetch_ready, fetch_sources } from '../../../shared/api/kb';
+import { is_not_found_api_error, to_user_error_message } from '../../../shared/api/errorMessages';
 import type {
   GraphDataView,
   GraphEdgeDetail,
@@ -17,6 +18,15 @@ import {
   resolve_runtime_profile,
   type Selection,
 } from '../model/graphModel';
+import { EMPTY_GRAPH, build_graph_query_plan } from '../model/graphQueryPlan';
+import {
+  build_layout_storage_key,
+  create_layout_snapshot,
+  delete_layout_snapshot,
+  read_layout_snapshot,
+  write_layout_snapshot,
+  type GraphLayoutNodeSnapshot,
+} from '../model/layoutPersistence';
 import { ChatPanel } from './panels/ChatPanel';
 import { GraphEditorPanel } from './panels/GraphEditorPanel';
 import { GraphSettingsPanel } from './panels/GraphSettingsPanel';
@@ -24,12 +34,19 @@ import { ImportPanel } from './panels/ImportPanel';
 import { InspectorPanel } from './panels/InspectorPanel';
 import { ModelConfigPanel } from './panels/ModelConfigPanel';
 import { SourceDetailPanel } from './panels/SourceDetailPanel';
-import { GraphCanvas } from './GraphCanvas';
+import { GraphCanvas, type LayoutCommand } from './GraphCanvas';
 
 type ViewportCommand = { id: number; type: 'fit' | 'focus' | 'relayout' };
+type LayoutCommandInput =
+  | { type: 'save' }
+  | { type: 'restore'; nodes: GraphLayoutNodeSnapshot[] }
+  | { type: 'reset' }
+  | { type: 'fix-selected' }
+  | { type: 'release-selected' }
+  | { type: 'fix-neighborhood' }
+  | { type: 'release-all' };
 type RightPanel = 'inspector' | 'edit' | 'source' | 'import' | 'chat' | 'model';
 
-const EMPTY_GRAPH: KnowledgeGraph = { view: 'semantic', nodes: [], edges: [] };
 const VIEW_LABELS: Record<GraphDataView, string> = {
   semantic: '语义图',
   evidence: '证据图',
@@ -64,12 +81,18 @@ export function GraphWorkbench() {
   const [edge_detail, set_edge_detail] = useState<GraphEdgeDetail | null>(null);
   const [loading, set_loading] = useState(false);
   const [error, set_error] = useState<string | null>(null);
+  const [graph_notice, set_graph_notice] = useState<string | null>(null);
+  const [detail_notice, set_detail_notice] = useState<string | null>(null);
   const [show_labels, set_show_labels] = useState(true);
   const [physics_running, set_physics_running] = useState(true);
   const [link_distance, set_link_distance] = useState(92);
   const [repulsion, set_repulsion] = useState(180);
   const [right_panel, set_right_panel] = useState<RightPanel>('inspector');
   const [viewport_command, set_viewport_command] = useState<ViewportCommand | null>(null);
+  const [layout_command, set_layout_command] = useState<LayoutCommand | null>(null);
+  const [auto_save_layout, set_auto_save_layout] = useState(true);
+  const [layout_status, set_layout_status] = useState('布局未保存');
+  const [fixed_node_count, set_fixed_node_count] = useState(0);
 
   const graph_scope = useMemo<KBScope>(() => {
     const source_ids = build_scope_source_ids(selected_source_ids);
@@ -79,29 +102,69 @@ export function GraphWorkbench() {
       source_ids,
     };
   }, [selected_source_ids]);
+  const graph_query_selection = view === 'evidence' ? selected : null;
+  const layout_key = useMemo(
+    () => build_layout_storage_key({ view, density, scope: graph_scope }),
+    [density, graph_scope, view],
+  );
 
   const load = useCallback(async () => {
     set_loading(true);
     set_error(null);
+    set_graph_notice(null);
     try {
+      const graph_query_plan = build_graph_query_plan({
+        density,
+        scope: graph_scope,
+        selected: graph_query_selection,
+        view,
+      });
+
+      if (graph_query_plan.kind === 'local-empty') {
+        const [next_ready, next_sources] = await Promise.all([
+          fetch_ready().catch(() => null),
+          fetch_sources(),
+        ]);
+        set_ready(next_ready);
+        set_sources(next_sources);
+        set_graph(graph_query_plan.graph);
+        set_graph_notice(graph_query_plan.message);
+        return;
+      }
+
       const [next_ready, next_sources, next_graph] = await Promise.all([
         fetch_ready().catch(() => null),
         fetch_sources(),
-        fetch_graph({ scope: graph_scope, view, density }),
+        fetch_graph(graph_query_plan.options),
       ]);
       set_ready(next_ready);
       set_sources(next_sources);
       set_graph(next_graph);
     } catch (current_error) {
-      set_error((current_error as Error).message);
+      set_error(to_user_error_message(current_error, 'graph'));
     } finally {
       set_loading(false);
     }
-  }, [density, graph_scope, view]);
+  }, [density, graph_query_selection, graph_scope, view]);
 
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    if (!graph.nodes.length) {
+      return;
+    }
+    const snapshot = read_layout_snapshot(window.localStorage, layout_key);
+    if (!snapshot) {
+      set_fixed_node_count(0);
+      set_layout_status('没有已保存布局');
+      return;
+    }
+    issue_layout_command({ type: 'restore', nodes: snapshot.nodes });
+    set_fixed_node_count(snapshot.nodes.filter((node) => node.fixed).length);
+    set_layout_status(`已恢复布局：${new Date(snapshot.saved_at).toLocaleString()}`);
+  }, [graph.nodes.length, layout_key]);
 
   const projected = useMemo(
     () =>
@@ -144,6 +207,7 @@ export function GraphWorkbench() {
     let cancelled = false;
     set_node_detail(null);
     set_edge_detail(null);
+    set_detail_notice(null);
     if (!selected) {
       return;
     }
@@ -161,7 +225,11 @@ export function GraphWorkbench() {
           });
     detail_request.catch((current_error) => {
       if (!cancelled) {
-        set_error((current_error as Error).message);
+        if (selected.type === 'edge' && is_not_found_api_error(current_error, 'graph_edge_not_found')) {
+          set_detail_notice(to_user_error_message(current_error, 'edge-detail'));
+          return;
+        }
+        set_error(to_user_error_message(current_error, selected.type === 'node' ? 'node-detail' : 'edge-detail'));
       }
     });
     return () => {
@@ -199,6 +267,53 @@ export function GraphWorkbench() {
     set_edge_detail(null);
   }
 
+  function issue_layout_command(command: LayoutCommandInput): void {
+    set_layout_command((current) => ({ id: (current?.id ?? 0) + 1, ...command } as LayoutCommand));
+  }
+
+  function persist_layout(nodes: GraphLayoutNodeSnapshot[], status: string): void {
+    const snapshot = create_layout_snapshot(nodes);
+    write_layout_snapshot(window.localStorage, layout_key, snapshot);
+    set_fixed_node_count(nodes.filter((node) => node.fixed).length);
+    set_layout_status(status);
+  }
+
+  function handle_layout_snapshot(nodes: GraphLayoutNodeSnapshot[]): void {
+    persist_layout(nodes, '布局已保存');
+  }
+
+  function handle_layout_change(nodes: GraphLayoutNodeSnapshot[]): void {
+    set_fixed_node_count(nodes.filter((node) => node.fixed).length);
+    if (auto_save_layout) {
+      persist_layout(nodes, '布局已自动保存');
+    } else {
+      set_layout_status('布局有未保存改动');
+    }
+  }
+
+  function restore_layout(): void {
+    const snapshot = read_layout_snapshot(window.localStorage, layout_key);
+    if (!snapshot) {
+      set_layout_status('当前范围没有已保存布局');
+      return;
+    }
+    issue_layout_command({ type: 'restore', nodes: snapshot.nodes });
+    set_fixed_node_count(snapshot.nodes.filter((node) => node.fixed).length);
+    set_layout_status(`已恢复布局：${new Date(snapshot.saved_at).toLocaleString()}`);
+  }
+
+  function reset_layout(): void {
+    delete_layout_snapshot(window.localStorage, layout_key);
+    issue_layout_command({ type: 'reset' });
+    set_fixed_node_count(0);
+    set_layout_status('已重置当前布局');
+  }
+
+  function handle_physics_auto_stop(): void {
+    set_physics_running(false);
+    set_layout_status('中等规模图谱已自动冻结');
+  }
+
   function render_panel() {
     if (right_panel === 'edit') {
       return (
@@ -226,6 +341,7 @@ export function GraphWorkbench() {
     }
     return (
       <InspectorPanel
+        detail_notice={detail_notice}
         edge_detail={edge_detail}
         node_detail={node_detail}
         on_clear_selection={clear_selection}
@@ -337,15 +453,20 @@ export function GraphWorkbench() {
           <span>{PROFILE_LABELS[profile.mode]} · {Math.round(profile.complexity)}</span>
           <span>{ready?.status ?? 'ready: unknown'}</span>
           {loading ? <span>同步中</span> : null}
+          {graph_notice ? <span className='is-note'>{graph_notice}</span> : null}
           {error ? <span className='is-danger'>{error}</span> : null}
         </section>
 
         <GraphCanvas
           edges={projected.edges}
+          layout_command={layout_command}
           link_distance={link_distance}
           neighborhood={neighborhood}
           nodes={projected.nodes}
           on_clear_selection={clear_selection}
+          on_layout_change={handle_layout_change}
+          on_layout_snapshot={handle_layout_snapshot}
+          on_physics_auto_stop={handle_physics_auto_stop}
           on_select_edge={select_edge}
           on_select_node={select_node}
           physics_running={active_physics}
@@ -372,13 +493,25 @@ export function GraphWorkbench() {
         </nav>
 
         <GraphSettingsPanel
+          auto_save_layout={auto_save_layout}
           density={density}
+          fixed_node_count={fixed_node_count}
+          has_selected={Boolean(selected)}
           link_distance={link_distance}
+          layout_status={layout_status}
           local_depth={local_depth}
+          on_auto_save_layout_change={set_auto_save_layout}
           on_density_change={set_density}
+          on_fix_neighborhood={() => issue_layout_command({ type: 'fix-neighborhood' })}
+          on_fix_selected={() => issue_layout_command({ type: 'fix-selected' })}
           on_link_distance_change={set_link_distance}
           on_local_depth_change={set_local_depth}
+          on_release_all={() => issue_layout_command({ type: 'release-all' })}
+          on_release_selected={() => issue_layout_command({ type: 'release-selected' })}
           on_repulsion_change={set_repulsion}
+          on_reset_layout={reset_layout}
+          on_restore_layout={restore_layout}
+          on_save_layout={() => issue_layout_command({ type: 'save' })}
           on_show_labels_change={set_show_labels}
           repulsion={repulsion}
           show_labels={show_labels}

@@ -6,6 +6,7 @@ import {
   fetch_source_worksheets,
   fetch_worksheet_preview,
 } from '../../../../shared/api/kb';
+import { to_user_error_message } from '../../../../shared/api/errorMessages';
 import type {
   ParagraphItem,
   SourceDetail,
@@ -63,7 +64,7 @@ export function SourceDetailPanel(props: SourceDetailPanelProps) {
       })
       .catch((error) => {
         if (!cancelled) {
-          set_message((error as Error).message);
+          set_message(to_user_error_message(error, 'source-detail'));
         }
       });
     return () => {
@@ -91,7 +92,7 @@ export function SourceDetailPanel(props: SourceDetailPanelProps) {
       })
       .catch((error) => {
         if (!cancelled) {
-          set_message((error as Error).message);
+          set_message(to_user_error_message(error, 'source-detail'));
         }
       });
     return () => {
