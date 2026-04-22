@@ -5,6 +5,7 @@ import type {
   GraphDataView,
   GraphEdgeDetail,
   GraphNodeDetail,
+  KBScope,
   KnowledgeGraph,
   SourceItem,
   SystemReady,
@@ -16,9 +17,17 @@ import {
   resolve_runtime_profile,
   type Selection,
 } from '../model/graphModel';
+import { ChatPanel } from './panels/ChatPanel';
+import { GraphEditorPanel } from './panels/GraphEditorPanel';
+import { GraphSettingsPanel } from './panels/GraphSettingsPanel';
+import { ImportPanel } from './panels/ImportPanel';
+import { InspectorPanel } from './panels/InspectorPanel';
+import { ModelConfigPanel } from './panels/ModelConfigPanel';
+import { SourceDetailPanel } from './panels/SourceDetailPanel';
 import { GraphCanvas } from './GraphCanvas';
 
 type ViewportCommand = { id: number; type: 'fit' | 'focus' | 'relayout' };
+type RightPanel = 'inspector' | 'edit' | 'source' | 'import' | 'chat' | 'model';
 
 const EMPTY_GRAPH: KnowledgeGraph = { view: 'semantic', nodes: [], edges: [] };
 const VIEW_LABELS: Record<GraphDataView, string> = {
@@ -30,6 +39,14 @@ const PROFILE_LABELS = {
   standard: '标准',
   balanced: '节能',
   static: '大图静态',
+};
+const PANEL_LABELS: Record<RightPanel, string> = {
+  inspector: '检查',
+  edit: '编辑',
+  source: '来源',
+  import: '导入',
+  chat: '问答',
+  model: '模型',
 };
 
 export function GraphWorkbench() {
@@ -51,25 +68,26 @@ export function GraphWorkbench() {
   const [physics_running, set_physics_running] = useState(true);
   const [link_distance, set_link_distance] = useState(92);
   const [repulsion, set_repulsion] = useState(180);
+  const [right_panel, set_right_panel] = useState<RightPanel>('inspector');
   const [viewport_command, set_viewport_command] = useState<ViewportCommand | null>(null);
+
+  const graph_scope = useMemo<KBScope>(() => {
+    const source_ids = build_scope_source_ids(selected_source_ids);
+    return {
+      ...DEFAULT_SCOPE,
+      mode: source_ids.length ? 'subset' : 'all',
+      source_ids,
+    };
+  }, [selected_source_ids]);
 
   const load = useCallback(async () => {
     set_loading(true);
     set_error(null);
     try {
-      const scope_source_ids = build_scope_source_ids(selected_source_ids);
       const [next_ready, next_sources, next_graph] = await Promise.all([
         fetch_ready().catch(() => null),
         fetch_sources(),
-        fetch_graph({
-          scope: {
-            ...DEFAULT_SCOPE,
-            mode: scope_source_ids.length ? 'subset' : 'all',
-            source_ids: scope_source_ids,
-          },
-          view,
-          density,
-        }),
+        fetch_graph({ scope: graph_scope, view, density }),
       ]);
       set_ready(next_ready);
       set_sources(next_sources);
@@ -79,7 +97,7 @@ export function GraphWorkbench() {
     } finally {
       set_loading(false);
     }
-  }, [density, selected_source_ids, view]);
+  }, [density, graph_scope, view]);
 
   useEffect(() => {
     void load();
@@ -165,11 +183,13 @@ export function GraphWorkbench() {
 
   function select_node(node_id: string): void {
     set_selected({ type: 'node', id: node_id });
+    set_right_panel((current) => current === 'chat' ? current : 'inspector');
     set_viewport_command((current) => ({ id: (current?.id ?? 0) + 1, type: 'focus' }));
   }
 
   function select_edge(edge_id: string): void {
     set_selected({ type: 'edge', id: edge_id });
+    set_right_panel('inspector');
     set_viewport_command((current) => ({ id: (current?.id ?? 0) + 1, type: 'focus' }));
   }
 
@@ -177,6 +197,43 @@ export function GraphWorkbench() {
     set_selected(null);
     set_node_detail(null);
     set_edge_detail(null);
+  }
+
+  function render_panel() {
+    if (right_panel === 'edit') {
+      return (
+        <GraphEditorPanel
+          graph={graph}
+          on_mutation={load}
+          on_select_node={select_node}
+          selected_edge={selected_edge}
+          selected_node={selected_node}
+          sources={sources}
+        />
+      );
+    }
+    if (right_panel === 'source') {
+      return <SourceDetailPanel selected_source_ids={selected_source_ids} sources={sources} />;
+    }
+    if (right_panel === 'import') {
+      return <ImportPanel on_import_finished={load} />;
+    }
+    if (right_panel === 'chat') {
+      return <ChatPanel on_focus_node={select_node} scope={graph_scope} />;
+    }
+    if (right_panel === 'model') {
+      return <ModelConfigPanel on_saved={load} ready={ready} />;
+    }
+    return (
+      <InspectorPanel
+        edge_detail={edge_detail}
+        node_detail={node_detail}
+        on_clear_selection={clear_selection}
+        selected={selected}
+        selected_edge={selected_edge}
+        selected_node={selected_node}
+      />
+    );
   }
 
   const active_physics = physics_running && profile.physics_enabled;
@@ -301,106 +358,34 @@ export function GraphWorkbench() {
       </section>
 
       <aside className='right-panel'>
-        <section className='control-section'>
-          <div className='section-heading'>
-            <span>Obsidian 图谱控制</span>
-          </div>
-          <label className='field is-inline'>
-            <span>标签</span>
-            <input checked={show_labels} onChange={(event) => set_show_labels(event.target.checked)} type='checkbox' />
-          </label>
-          <label className='field'>
-            <span>密度 {density}%</span>
-            <input max='100' min='20' onChange={(event) => set_density(Number(event.target.value))} type='range' value={density} />
-          </label>
-          <label className='field'>
-            <span>局部深度 {local_depth}</span>
-            <input max='3' min='1' onChange={(event) => set_local_depth(Number(event.target.value))} type='range' value={local_depth} />
-          </label>
-          <label className='field'>
-            <span>连接距离 {link_distance}</span>
-            <input max='180' min='48' onChange={(event) => set_link_distance(Number(event.target.value))} type='range' value={link_distance} />
-          </label>
-          <label className='field'>
-            <span>斥力 {repulsion}</span>
-            <input max='360' min='60' onChange={(event) => set_repulsion(Number(event.target.value))} type='range' value={repulsion} />
-          </label>
-        </section>
+        <nav className='panel-tabs' aria-label='工作台功能'>
+          {(Object.keys(PANEL_LABELS) as RightPanel[]).map((item) => (
+            <button
+              aria-pressed={right_panel === item}
+              key={item}
+              onClick={() => set_right_panel(item)}
+              type='button'
+            >
+              {PANEL_LABELS[item]}
+            </button>
+          ))}
+        </nav>
 
-        <section className='inspector'>
-          <div className='section-heading'>
-            <span>检查器</span>
-            {selected ? <button onClick={clear_selection} type='button'>清除</button> : null}
-          </div>
-          {!selected ? <p className='muted'>点击节点或关系查看详情；空白点击会清理焦点。</p> : null}
-          {selected_node ? (
-            <DetailBlock
-              title={selected_node.display_name}
-              rows={[
-                ['类型', selected_node.kind_label ?? selected_node.type],
-                ['连接数', String(selected_node.degree)],
-                ['来源', selected_node.source_label ?? '无直接来源'],
-                ['证据', String(selected_node.evidence_count ?? 0)],
-              ]}
-            />
-          ) : null}
-          {selected_edge ? (
-            <DetailBlock
-              title={selected_edge.display_name}
-              rows={[
-                ['起点', selected_edge.source_name_resolved],
-                ['终点', selected_edge.target_name_resolved],
-                ['类型', selected_edge.relation_kind_label ?? selected_edge.type],
-                ['权重', String(selected_edge.weight)],
-              ]}
-            />
-          ) : null}
-          {node_detail ? (
-            <PreviewList
-              title='关联证据'
-              items={node_detail.paragraphs.map((item, index) => preview_text(item, `证据段落 ${index + 1}`))}
-            />
-          ) : null}
-          {edge_detail?.paragraph ? (
-            <PreviewList title='关系证据' items={[preview_text(edge_detail.paragraph, '关系证据')]} />
-          ) : null}
-        </section>
+        <GraphSettingsPanel
+          density={density}
+          link_distance={link_distance}
+          local_depth={local_depth}
+          on_density_change={set_density}
+          on_link_distance_change={set_link_distance}
+          on_local_depth_change={set_local_depth}
+          on_repulsion_change={set_repulsion}
+          on_show_labels_change={set_show_labels}
+          repulsion={repulsion}
+          show_labels={show_labels}
+        />
+
+        {render_panel()}
       </aside>
     </main>
   );
-}
-
-function DetailBlock(props: { title: string; rows: Array<[string, string]> }) {
-  return (
-    <div className='detail-block'>
-      <strong>{props.title}</strong>
-      {props.rows.map(([label, value]) => (
-        <div key={label}>
-          <span>{label}</span>
-          <b>{value}</b>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function PreviewList(props: { title: string; items: string[] }) {
-  return (
-    <div className='preview-list'>
-      <strong>{props.title}</strong>
-      {props.items.slice(0, 5).map((item, index) => (
-        <p key={`${props.title}-${index}`}>{item}</p>
-      ))}
-    </div>
-  );
-}
-
-function preview_text(value: Record<string, unknown>, fallback: string): string {
-  for (const key of ['content', 'excerpt', 'summary', 'display_label', 'label', 'name']) {
-    const candidate = value[key];
-    if (typeof candidate === 'string' && candidate.trim()) {
-      return candidate.trim();
-    }
-  }
-  return fallback;
 }

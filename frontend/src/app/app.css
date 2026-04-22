@@ -29,7 +29,9 @@ body {
 }
 
 button,
-input {
+input,
+textarea,
+select {
   font: inherit;
 }
 
@@ -58,7 +60,10 @@ button.is-active {
 }
 
 input[type='text'],
-input:not([type]) {
+input[type='password'],
+input:not([type]),
+textarea,
+select {
   width: 100%;
   border: 1px solid var(--line);
   border-radius: 10px;
@@ -68,6 +73,20 @@ input:not([type]) {
   outline: none;
 }
 
+textarea {
+  resize: vertical;
+  line-height: 1.5;
+}
+
+select {
+  min-height: 40px;
+}
+
+input[type='file'] {
+  width: 100%;
+  color: var(--muted);
+}
+
 input[type='range'] {
   width: 100%;
   accent-color: var(--accent);
@@ -75,7 +94,7 @@ input[type='range'] {
 
 .workbench-shell {
   display: grid;
-  grid-template-columns: 300px minmax(0, 1fr) 320px;
+  grid-template-columns: 300px minmax(0, 1fr) minmax(390px, 440px);
   gap: 12px;
   height: 100vh;
   padding: 12px;
@@ -130,9 +149,21 @@ input[type='range'] {
 }
 
 .control-section,
-.inspector {
+.inspector,
+.panel-body {
   display: grid;
   gap: 12px;
+}
+
+.panel-tabs {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.panel-tabs button {
+  min-height: 34px;
+  padding: 6px 8px;
 }
 
 .section-heading {
@@ -246,6 +277,10 @@ input[type='range'] {
   border-color: rgba(248, 113, 113, 0.42);
 }
 
+.is-danger {
+  color: var(--danger);
+}
+
 .graph-canvas-shell {
   position: relative;
   min-height: 0;
@@ -319,4 +354,183 @@ input[type='range'] {
 .preview-list p {
   margin: 0;
   line-height: 1.55;
+}
+
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.stacked-tool,
+.capability-note,
+.job-item,
+.chat-message,
+.search-result-item,
+.paragraph-item,
+.relation-list,
+.relation-item {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: rgba(15, 23, 42, 0.5);
+}
+
+.stacked-tool > strong,
+.relation-list > strong {
+  color: var(--text);
+}
+
+.button-row,
+.job-item-footer,
+.job-item-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.button-row {
+  flex-wrap: wrap;
+  justify-content: flex-start;
+}
+
+.button-row button,
+.job-item-footer button,
+.relation-item button,
+.session-strip button {
+  padding: 7px 10px;
+}
+
+.inline-message,
+.capability-note p,
+.job-item p,
+.chat-message p,
+.search-result-item p,
+.paragraph-item p,
+.relation-item small {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.84rem;
+  line-height: 1.55;
+}
+
+.job-list,
+.chat-thread,
+.search-result-list,
+.paragraph-list {
+  display: grid;
+  gap: 10px;
+  max-height: 42vh;
+  overflow: auto;
+  padding-right: 2px;
+}
+
+.job-item-header span,
+.job-item-footer span {
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.session-strip {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 2px;
+}
+
+.session-strip button {
+  flex: 0 0 auto;
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chat-message {
+  background: rgba(2, 6, 23, 0.35);
+}
+
+.chat-message.is-user {
+  border-color: rgba(125, 211, 252, 0.32);
+}
+
+.citation-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.citation-list span {
+  padding: 4px 7px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 0.72rem;
+}
+
+.search-result-item button {
+  justify-self: start;
+}
+
+.relation-item {
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr) auto auto;
+  align-items: center;
+}
+
+.relation-item > span {
+  color: var(--accent);
+  font-size: 0.82rem;
+}
+
+.relation-item button {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.paragraph-item > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.paragraph-item span {
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.table-scroll {
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+
+table {
+  width: 100%;
+  min-width: 520px;
+  border-collapse: collapse;
+  font-size: 0.82rem;
+}
+
+th,
+td {
+  max-width: 220px;
+  padding: 8px 9px;
+  border-bottom: 1px solid var(--line);
+  color: var(--muted);
+  text-align: left;
+  vertical-align: top;
+  overflow-wrap: anywhere;
+}
+
+th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: rgba(15, 23, 42, 0.96);
+  color: var(--text);
 }
