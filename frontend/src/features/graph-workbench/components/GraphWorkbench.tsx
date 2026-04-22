@@ -462,11 +462,13 @@ export function GraphWorkbench() {
 
   const active_physics = physics_running && profile.physics_enabled;
   const workspace_chrome = resolve_workspace_chrome(workspace_view);
+  const is_page_workspace = workspace_view !== 'graph';
   const workbench_class_name = [
     'workbench-shell',
     left_collapsed ? 'is-left-collapsed' : '',
     workspace_chrome.show_graph_context_panel && right_collapsed ? 'is-right-collapsed' : '',
     workspace_chrome.show_graph_context_panel ? '' : 'is-main-workspace',
+    is_page_workspace ? 'is-page-workspace' : '',
   ].filter(Boolean).join(' ');
   const view_hint = view === 'evidence'
     ? evidence_anchor

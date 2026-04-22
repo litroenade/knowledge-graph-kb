@@ -156,6 +156,11 @@ input[type='range'] {
   grid-template-columns: 64px minmax(0, 1fr);
 }
 
+.workbench-shell.is-page-workspace,
+.workbench-shell.is-page-workspace.is-left-collapsed {
+  grid-template-columns: 72px minmax(0, 1fr);
+}
+
 .left-rail,
 .right-panel,
 .graph-stage,
@@ -438,6 +443,19 @@ input[type='range'] {
   visibility: hidden;
 }
 
+.workbench-shell.is-page-workspace .left-rail {
+  padding: 10px;
+}
+
+.workbench-shell.is-page-workspace .left-rail .collapsed-rail-stack {
+  display: grid;
+}
+
+.workbench-shell.is-page-workspace .left-rail .rail-toggle-expanded,
+.workbench-shell.is-page-workspace .left-rail .rail-content {
+  display: none;
+}
+
 .workbench-shell.is-left-collapsed .left-rail .rail-content {
   transform: translateX(-14px);
 }
@@ -532,6 +550,39 @@ input[type='range'] {
 
 .chat-workspace {
   grid-template-columns: minmax(0, 1fr) minmax(220px, 280px);
+}
+
+.workbench-shell.is-page-workspace .workspace-stage {
+  min-width: 0;
+}
+
+.workbench-shell.is-page-workspace .workspace-content {
+  overflow-x: hidden;
+}
+
+.workbench-shell.is-page-workspace .import-workspace,
+.workbench-shell.is-page-workspace .chat-workspace {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.workbench-shell.is-page-workspace .import-workspace {
+  align-items: stretch;
+}
+
+.workbench-shell.is-page-workspace .workspace-process {
+  padding: 12px 14px;
+}
+
+.workbench-shell.is-page-workspace .process-steps {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
+.workbench-shell.is-page-workspace .process-steps li {
+  grid-template-columns: 26px minmax(0, 1fr);
+}
+
+.workbench-shell.is-page-workspace .chat-workspace > .workspace-context {
+  display: none;
 }
 
 .model-config-overlay {
@@ -941,6 +992,10 @@ input[type='range'] {
   align-items: start;
 }
 
+.workbench-shell.is-page-workspace .import-workbench-grid {
+  grid-template-columns: minmax(320px, 420px) minmax(260px, 340px) minmax(0, 1fr);
+}
+
 .import-compose-card,
 .task-board,
 .import-detail-panel {
@@ -951,6 +1006,12 @@ input[type='range'] {
   border: 1px solid var(--line);
   border-radius: 14px;
   background: rgba(15, 23, 42, 0.42);
+}
+
+.workbench-shell.is-page-workspace .import-detail-panel,
+.workbench-shell.is-page-workspace .import-compose-card,
+.workbench-shell.is-page-workspace .task-board {
+  overflow: hidden;
 }
 
 .import-tabs {
@@ -1147,6 +1208,14 @@ input[type='range'] {
   border-radius: 12px;
 }
 
+.import-table-scroll table {
+  table-layout: fixed;
+}
+
+.workbench-shell.is-page-workspace .import-table-scroll table {
+  min-width: 720px;
+}
+
 .import-table-scroll tr.is-selected td {
   background: rgba(14, 165, 233, 0.14);
   color: var(--text);
@@ -1161,6 +1230,10 @@ input[type='range'] {
   grid-template-columns: minmax(150px, 190px) minmax(0, 1fr) minmax(260px, 320px);
   gap: 10px;
   align-items: start;
+}
+
+.workbench-shell.is-page-workspace .chat-console-grid {
+  grid-template-columns: minmax(170px, 220px) minmax(0, 1fr) minmax(280px, 360px);
 }
 
 .chat-session-list,

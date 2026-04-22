@@ -1,9 +1,10 @@
 ﻿"""模型配置相关路由。"""
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 
 from src.api.dependencies import get_model_config_service, get_openai_gateway
-from src.api.schemas import (
+from src.api.errors import api_error
+from src.api.schemas.model_config import (
     ModelConfigResponse,
     ModelConfigTestRequest,
     ModelConfigTestResponse,
@@ -11,15 +12,15 @@ from src.api.schemas import (
 )
 from src.kb.infrastructure.providers import OpenAiConfigurationError, OpenAiRequestError
 
-configuration_router = APIRouter(prefix="/api/kb/config/model", tags=["kb-config"])
+model_config_router = APIRouter(prefix="/api/kb/config/model", tags=["kb-config"])
 
 
-@configuration_router.get("", response_model=ModelConfigResponse)
+@model_config_router.get("", response_model=ModelConfigResponse)
 def get_model_configuration(model_config_service=Depends(get_model_config_service)) -> ModelConfigResponse:
     return ModelConfigResponse(**model_config_service.get_public_configuration())
 
 
-@configuration_router.put("", response_model=ModelConfigResponse)
+@model_config_router.put("", response_model=ModelConfigResponse)
 def update_model_configuration(
     payload: ModelConfigUpdateRequest,
     model_config_service=Depends(get_model_config_service),
@@ -27,11 +28,11 @@ def update_model_configuration(
     try:
         result = model_config_service.update_configuration(payload.model_dump())
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise api_error(status_code=400, code="invalid_model_config", message=str(exc)) from exc
     return ModelConfigResponse(**result)
 
 
-@configuration_router.post("/test", response_model=ModelConfigTestResponse)
+@model_config_router.post("/test", response_model=ModelConfigTestResponse)
 def test_model_configuration(
     payload: ModelConfigTestRequest,
     model_config_service=Depends(get_model_config_service),
@@ -46,10 +47,10 @@ def test_model_configuration(
             embedding_ok=embedding_ok,
         )
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise api_error(status_code=400, code="invalid_model_config", message=str(exc)) from exc
     except OpenAiConfigurationError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise api_error(status_code=400, code="model_config_error", message=str(exc)) from exc
     except OpenAiRequestError as exc:
-        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+        raise api_error(status_code=exc.status_code, code="model_request_error", message=str(exc)) from exc
     return ModelConfigTestResponse(**result)
 

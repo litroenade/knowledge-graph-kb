@@ -4,7 +4,8 @@ from fastapi import APIRouter, Depends, Query
 
 from src.api.dependencies import get_graph_service
 from src.api.errors import api_error
-from src.api.schemas import (
+from src.api.schemas.common import StatusResponse
+from src.api.schemas.graph import (
     GraphEdgeDetailResponse,
     GraphNodeCreateRequest,
     GraphNodeDetailResponse,
@@ -14,7 +15,6 @@ from src.api.schemas import (
     GraphResponse,
     ManualRelationItem,
     ManualRelationRequest,
-    StatusResponse,
 )
 
 graph_router = APIRouter(prefix="/api/kb/graph", tags=["kb-graph"])
@@ -39,7 +39,7 @@ def get_graph(
         raise api_error(status_code=400, code="invalid_graph_query", message=str(exc)) from exc
 
 
-@graph_router.get("", response_model=GraphResponse)
+@graph_router.get("", response_model=GraphResponse, deprecated=True)
 def get_graph_legacy(
     source_ids: list[str] = Query(default_factory=list),
     view: str = Query(default="semantic"),

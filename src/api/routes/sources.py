@@ -4,12 +4,12 @@ from fastapi import APIRouter, Depends, Query
 
 from src.api.dependencies import get_graph_service, get_source_service
 from src.api.errors import api_error
-from src.api.schemas import (
+from src.api.schemas.common import StatusResponse
+from src.api.schemas.sources import (
     SourceDetailResponse,
     SourceItem,
     SourceParagraphsResponse,
     SourceUpdateRequest,
-    StatusResponse,
     WorksheetListResponse,
     WorksheetPreviewResponse,
 )

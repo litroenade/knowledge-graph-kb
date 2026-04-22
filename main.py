@@ -9,7 +9,7 @@ import uvicorn
 from src import create_app
 from src.config import Settings, get_settings
 from src.kb import build_knowledge_base_container
-from src.kb.application.services import restore_backup
+from src.kb.use_cases.services import restore_backup
 from src.utils.logger import configure_logging, get_logger
 
 logger = get_logger(__name__)

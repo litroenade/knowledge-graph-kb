@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, Query
 
 from src.api.dependencies import get_conversation_service
 from src.api.errors import api_error
-from src.api.schemas import (
+from src.api.schemas.chat import (
     ChatMessageCreateRequest,
     ChatMessageItem,
     ChatSessionCreateRequest,

@@ -9,7 +9,7 @@ from src.api.dependencies import (
     get_source_search_service,
 )
 from src.api.errors import api_error
-from src.api.schemas import (
+from src.api.schemas.search import (
     EntitySearchRequest,
     EntitySearchResponse,
     RecordSearchRequest,

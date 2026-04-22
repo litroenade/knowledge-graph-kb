@@ -3,7 +3,7 @@ from fastapi import APIRouter, Depends, File, UploadFile
 
 from src.api.dependencies import get_import_service
 from src.api.errors import api_error
-from src.api.schemas import (
+from src.api.schemas.import_jobs import (
     ImportJobChunkItem,
     ImportJobItem,
     ImportJobResponse,
@@ -12,15 +12,15 @@ from src.api.schemas import (
     StructuredImportRequest,
 )
 
-router = APIRouter(prefix="/api/kb/imports", tags=["kb-imports"])
+import_jobs_router = APIRouter(prefix="/api/kb/imports", tags=["kb-imports"])
 
 
-@router.get("/jobs", response_model=list[ImportJobItem])
+@import_jobs_router.get("/jobs", response_model=list[ImportJobItem])
 def list_import_jobs(limit: int = 50, import_service=Depends(get_import_service)) -> list[ImportJobItem]:
     return [ImportJobItem(**job) for job in import_service.list_jobs(limit=limit)]
 
 
-@router.post("/uploads", response_model=ImportJobResponse)
+@import_jobs_router.post("/uploads", response_model=ImportJobResponse)
 async def submit_upload_import(
     files: list[UploadFile] = File(...),
     strategy: str = "auto",
@@ -34,7 +34,7 @@ async def submit_upload_import(
     return ImportJobResponse(job=ImportJobItem(**job))
 
 
-@router.post("/paste", response_model=ImportJobResponse)
+@import_jobs_router.post("/paste", response_model=ImportJobResponse)
 def submit_paste_import(payload: PasteImportRequest, import_service=Depends(get_import_service)) -> ImportJobResponse:
     try:
         job = import_service.submit_paste(
@@ -48,7 +48,7 @@ def submit_paste_import(payload: PasteImportRequest, import_service=Depends(get_
     return ImportJobResponse(job=ImportJobItem(**job))
 
 
-@router.post("/scan", response_model=ImportJobResponse)
+@import_jobs_router.post("/scan", response_model=ImportJobResponse)
 def submit_scan_import(payload: ScanImportRequest, import_service=Depends(get_import_service)) -> ImportJobResponse:
     try:
         job = import_service.submit_scan(
@@ -61,7 +61,7 @@ def submit_scan_import(payload: ScanImportRequest, import_service=Depends(get_im
     return ImportJobResponse(job=ImportJobItem(**job))
 
 
-@router.post("/openie", response_model=ImportJobResponse)
+@import_jobs_router.post("/openie", response_model=ImportJobResponse)
 def submit_openie_import(payload: StructuredImportRequest, import_service=Depends(get_import_service)) -> ImportJobResponse:
     try:
         job = import_service.submit_openie(
@@ -75,7 +75,7 @@ def submit_openie_import(payload: StructuredImportRequest, import_service=Depend
     return ImportJobResponse(job=ImportJobItem(**job))
 
 
-@router.post("/convert", response_model=ImportJobResponse)
+@import_jobs_router.post("/convert", response_model=ImportJobResponse)
 def submit_convert_import(payload: StructuredImportRequest, import_service=Depends(get_import_service)) -> ImportJobResponse:
     try:
         job = import_service.submit_convert(
@@ -89,7 +89,7 @@ def submit_convert_import(payload: StructuredImportRequest, import_service=Depen
     return ImportJobResponse(job=ImportJobItem(**job))
 
 
-@router.get("/jobs/{job_id}", response_model=ImportJobItem)
+@import_jobs_router.get("/jobs/{job_id}", response_model=ImportJobItem)
 def get_import_job(job_id: str, import_service=Depends(get_import_service)) -> ImportJobItem:
     job = import_service.get_job(job_id)
     if job is None:
@@ -97,7 +97,7 @@ def get_import_job(job_id: str, import_service=Depends(get_import_service)) -> I
     return ImportJobItem(**job)
 
 
-@router.get("/jobs/{job_id}/files/{file_id}/chunks", response_model=list[ImportJobChunkItem])
+@import_jobs_router.get("/jobs/{job_id}/files/{file_id}/chunks", response_model=list[ImportJobChunkItem])
 def list_import_chunks(job_id: str, file_id: str, import_service=Depends(get_import_service)) -> list[ImportJobChunkItem]:
     job = import_service.get_job(job_id)
     if job is None:
@@ -108,7 +108,7 @@ def list_import_chunks(job_id: str, file_id: str, import_service=Depends(get_imp
     return [ImportJobChunkItem(**chunk) for chunk in import_service.list_job_chunks(job_id, file_id)]
 
 
-@router.post("/jobs/{job_id}/cancel", response_model=ImportJobItem)
+@import_jobs_router.post("/jobs/{job_id}/cancel", response_model=ImportJobItem)
 def cancel_import_job(job_id: str, import_service=Depends(get_import_service)) -> ImportJobItem:
     job = import_service.cancel_job(job_id)
     if job is None:
@@ -116,7 +116,7 @@ def cancel_import_job(job_id: str, import_service=Depends(get_import_service)) -
     return ImportJobItem(**job)
 
 
-@router.post("/jobs/{job_id}/retry", response_model=ImportJobResponse)
+@import_jobs_router.post("/jobs/{job_id}/retry", response_model=ImportJobResponse)
 def retry_import_job(job_id: str, import_service=Depends(get_import_service)) -> ImportJobResponse:
     try:
         job = import_service.retry_failed(job_id)

@@ -2,7 +2,7 @@
 from fastapi import APIRouter, Depends
 
 from src.api.dependencies import get_maintenance_service
-from src.api.schemas import SystemHealthResponse, SystemReadyResponse
+from src.api.schemas.system import SystemHealthResponse, SystemReadyResponse
 
 router = APIRouter(prefix="/api/system", tags=["system"])
 
