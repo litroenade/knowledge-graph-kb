@@ -19,3 +19,4 @@ data/
 *.pyo
 *.pyd
 *.tsbuildinfo
+.vite-dev*.log

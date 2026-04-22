@@ -1,16 +1,11 @@
-/**
- * 模块名称：main
- * 主要功能：挂载 React 前端应用入口。
- */
-
 import React from 'react';
-import ReactDOM from 'react-dom/client';
+import { createRoot } from 'react-dom/client';
 
-import App from './app';
-import './styles/app.css';
+import { App } from './app/App';
+import './app/app.css';
 
-ReactDOM.createRoot(document.getElementById('root')!).render(
+createRoot(document.getElementById('root') as HTMLElement).render(
   <React.StrictMode>
     <App />
-  </React.StrictMode>
+  </React.StrictMode>,
 );
