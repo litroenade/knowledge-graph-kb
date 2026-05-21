@@ -40,6 +40,7 @@ export interface FetchSourcesOptions {
   keyword?: string;
   limit?: number;
   scope?: KBScope;
+  signal?: AbortSignal;
 }
 
 export interface FetchGraphOptions {
@@ -48,12 +49,14 @@ export interface FetchGraphOptions {
   density: number;
   anchor_node_ids?: string[];
   anchor_edge_ids?: string[];
+  signal?: AbortSignal;
 }
 
-function json_request<T>(path: string, method: 'POST' | 'PUT' | 'DELETE', payload?: unknown): Promise<T> {
+function json_request<T>(path: string, method: 'POST' | 'PUT' | 'DELETE', payload?: unknown, init?: RequestInit): Promise<T> {
   return request_json<T>(path, {
+    ...init,
     method,
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...(init?.headers ?? {}) },
     body: payload === undefined ? undefined : JSON.stringify(payload),
   });
 }
@@ -63,8 +66,8 @@ function append_query(path: string, params: URLSearchParams): string {
   return query ? `${path}?${query}` : path;
 }
 
-export function fetch_ready(): Promise<SystemReady> {
-  return request_json<SystemReady>('/api/system/ready');
+export function fetch_ready(options?: { signal?: AbortSignal }): Promise<SystemReady> {
+  return request_json<SystemReady>('/api/system/ready', options);
 }
 
 export function fetch_sources(options: FetchSourcesOptions = {}): Promise<SourceItem[]> {
@@ -82,7 +85,7 @@ export function fetch_sources(options: FetchSourcesOptions = {}): Promise<Source
     options.scope.source_ids.forEach((id) => params.append('source_ids', id));
     options.scope.excluded_source_ids.forEach((id) => params.append('excluded_source_ids', id));
   }
-  return request_json<SourceItem[]>(append_query('/api/kb/sources', params));
+  return request_json<SourceItem[]>(append_query('/api/kb/sources', params), { signal: options.signal });
 }
 
 export function fetch_graph(options: FetchGraphOptions): Promise<KnowledgeGraph> {
@@ -92,15 +95,15 @@ export function fetch_graph(options: FetchGraphOptions): Promise<KnowledgeGraph>
     density: options.density,
     anchor_node_ids: options.anchor_node_ids ?? [],
     anchor_edge_ids: options.anchor_edge_ids ?? [],
-  });
+  }, { signal: options.signal });
 }
 
-export function fetch_node_detail(node_id: string): Promise<GraphNodeDetail> {
-  return request_json<GraphNodeDetail>(`/api/kb/graph/nodes/${encodeURIComponent(node_id)}`);
+export function fetch_node_detail(node_id: string, options?: { signal?: AbortSignal }): Promise<GraphNodeDetail> {
+  return request_json<GraphNodeDetail>(`/api/kb/graph/nodes/${encodeURIComponent(node_id)}`, options);
 }
 
-export function fetch_edge_detail(edge_id: string): Promise<GraphEdgeDetail> {
-  return request_json<GraphEdgeDetail>(`/api/kb/graph/edges/${encodeURIComponent(edge_id)}`);
+export function fetch_edge_detail(edge_id: string, options?: { signal?: AbortSignal }): Promise<GraphEdgeDetail> {
+  return request_json<GraphEdgeDetail>(`/api/kb/graph/edges/${encodeURIComponent(edge_id)}`, options);
 }
 
 export function create_graph_node(payload: {
@@ -118,7 +121,8 @@ export function rename_graph_node(node_id: string, label: string): Promise<Statu
 }
 
 export function delete_graph_node(node_id: string): Promise<StatusResponse> {
-  return json_request<StatusResponse>(`/api/kb/graph/nodes/${encodeURIComponent(node_id)}`, 'DELETE');
+  const path = `/api/kb/graph/nodes/${encodeURIComponent(node_id)}`;
+  return json_request<StatusResponse>(node_id.startsWith('source:') ? `${path}?confirm=true` : path, 'DELETE');
 }
 
 export function delete_graph_edge(edge_id: string): Promise<StatusResponse> {

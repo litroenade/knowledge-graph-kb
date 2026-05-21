@@ -128,7 +128,7 @@ class MaintenanceService:
         }
 
     def rebuild_vectors(self) -> dict[str, Any]:
-        paragraphs = self.source_store.list_all_paragraphs()
+        paragraphs = self.source_store.list_indexable_paragraphs()
         if not paragraphs:
             self.vector_index.reset()
             return {
@@ -138,19 +138,24 @@ class MaintenanceService:
                 "model_signature": self.model_config_service.embedding_model_signature(),
             }
 
-        records = [
-            VectorIndexRecord(
-                paragraph_id=str(paragraph["id"]),
-                source_id=str(paragraph["source_id"]),
-                node_id=build_paragraph_node_id(str(paragraph["id"])),
-                text=str(paragraph["content"]),
-                knowledge_type=str(paragraph["knowledge_type"]),
+        records: list[VectorIndexRecord] = []
+        for paragraph in paragraphs:
+            version_id = str(paragraph.get("version_id") or "").strip()
+            if not version_id:
+                raise ValueError(f"Paragraph {paragraph['id']} is missing version_id.")
+            records.append(
+                VectorIndexRecord(
+                    paragraph_id=str(paragraph["id"]),
+                    source_id=str(paragraph["source_id"]),
+                    version_id=version_id,
+                    node_id=build_paragraph_node_id(str(paragraph["id"])),
+                    text=str(paragraph["content"]),
+                    knowledge_type=str(paragraph["knowledge_type"]),
+                    file_path=str(paragraph.get("file_path") or "") or None,
+                )
             )
-            for paragraph in paragraphs
-        ]
         embeddings = self.openai_gateway.generate_embeddings([record.text for record in records])
-        self.vector_index.reset()
-        self.vector_index.add_embeddings(
+        self.vector_index.replace_embeddings(
             model_signature=self.model_config_service.embedding_model_signature(),
             records=records,
             embeddings=embeddings,

@@ -404,20 +404,6 @@ class ImportPipeline:
             )
             for paragraph in paragraph_rows
         ]
-        for paragraph in paragraph_rows:
-            self.source_store.update_paragraph(str(paragraph["id"]), vector_state="ready")
-        self.vector.add_embeddings(
-            model_signature=self.model_config_service.embedding_model_signature(),
-            records=vector_records,
-            embeddings=embeddings,
-        )
-        logger.info(
-            "已写入向量索引：job_id=%s file_id=%s source_id=%s paragraph_count=%s",
-            job_id,
-            file_id,
-            str(source["id"]),
-            len(paragraph_rows),
-        )
         self._ensure_not_cancelled(is_cancel_requested)
 
         extraction_result: dict[str, Any]
@@ -480,6 +466,27 @@ class ImportPipeline:
             paragraph_rows=paragraph_rows,
             extraction_result=extraction_result,
         )
+        paragraph_ids = [str(paragraph["id"]) for paragraph in paragraph_rows]
+        try:
+            self.vector.add_embeddings(
+                model_signature=self.model_config_service.embedding_model_signature(),
+                records=vector_records,
+                embeddings=embeddings,
+            )
+            for paragraph in paragraph_rows:
+                self.source_store.update_paragraph(str(paragraph["id"]), vector_state="ready")
+            logger.info(
+                "已写入向量索引：job_id=%s file_id=%s source_id=%s paragraph_count=%s",
+                job_id,
+                file_id,
+                str(source["id"]),
+                len(paragraph_rows),
+            )
+        except Exception:
+            self.vector.remove_paragraphs(paragraph_ids)
+            for paragraph_id in paragraph_ids:
+                self.source_store.update_paragraph(paragraph_id, vector_state="pending")
+            raise
         for chunk_row, paragraph_row in zip(chunk_rows, paragraph_rows, strict=True):
             self.job_store.update_job_chunk(
                 str(chunk_row["id"]),
@@ -1452,15 +1459,20 @@ class ImportService:
         """
 
         root = Path(root_path).resolve()
-        allowed_roots = [path for path in self.settings.resolved_kb_scan_roots if path.exists()]
-        if allowed_roots and not any(root.is_relative_to(allowed_root) for allowed_root in allowed_roots):
+        allowed_roots = [path.resolve() for path in self.settings.resolved_kb_scan_roots if path.exists()]
+        if not allowed_roots or not any(root.is_relative_to(allowed_root) for allowed_root in allowed_roots):
             raise ValueError("扫描路径不在允许的根目录范围内。")
         if not root.exists() or not root.is_dir():
             raise ValueError("扫描路径必须是已存在的目录。")
         normalized_pattern = str(glob_pattern or "**/*").strip() or "**/*"
         items: list[dict[str, Any]] = []
         skipped_unsupported_count = 0
-        for file_path in sorted(root.glob(normalized_pattern)):
+        for matched_path in sorted(root.glob(normalized_pattern)):
+            file_path = matched_path.resolve()
+            if not file_path.is_relative_to(root) or not any(
+                file_path.is_relative_to(allowed_root) for allowed_root in allowed_roots
+            ):
+                raise ValueError("扫描匹配文件不在允许的根目录范围内。")
             if not file_path.is_file():
                 continue
             try:

@@ -1,18 +1,20 @@
 """Search API schemas."""
 
-from typing import Any
+from typing import Annotated, Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, StringConstraints
 
 from src.api.schemas.common import KBScopeItem
 
+SearchQuery = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=500)]
+
 
 class RecordSearchRequest(BaseModel):
-    query: str
+    query: SearchQuery
     scope: KBScopeItem
     worksheet_names: list[str] = Field(default_factory=list)
     filters: dict[str, str] = Field(default_factory=dict)
-    limit: int = 20
+    limit: int = Field(default=20, ge=1, le=100)
 
 
 class RecordSearchItem(BaseModel):
@@ -32,9 +34,9 @@ class RecordSearchResponse(BaseModel):
 
 
 class EntitySearchRequest(BaseModel):
-    query: str
+    query: SearchQuery
     scope: KBScopeItem = Field(default_factory=lambda: KBScopeItem(mode="all"))
-    limit: int = 20
+    limit: int = Field(default=20, ge=1, le=100)
 
 
 class EntityItem(BaseModel):
@@ -51,9 +53,9 @@ class EntitySearchResponse(BaseModel):
 
 
 class RelationSearchRequest(BaseModel):
-    query: str
+    query: SearchQuery
     scope: KBScopeItem = Field(default_factory=lambda: KBScopeItem(mode="all"))
-    limit: int = 20
+    limit: int = Field(default=20, ge=1, le=100)
 
 
 class RelationItem(BaseModel):
@@ -73,9 +75,9 @@ class RelationSearchResponse(BaseModel):
 
 
 class SourceSearchRequest(BaseModel):
-    query: str
+    query: SearchQuery
     scope: KBScopeItem = Field(default_factory=lambda: KBScopeItem(mode="all"))
-    limit: int = 20
+    limit: int = Field(default=20, ge=1, le=100)
 
 
 class SourceSearchItem(BaseModel):

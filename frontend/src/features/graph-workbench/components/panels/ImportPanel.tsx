@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import {
   cancel_import_job,
@@ -56,6 +56,10 @@ const SOURCE_LABELS: Record<string, string> = {
 const RUNNING_STATUSES = new Set(['running', 'preparing', 'cancelling']);
 const QUEUED_STATUSES = new Set(['queued']);
 const CANCELABLE_STATUSES = new Set(['queued', 'running', 'preparing', 'cancelling']);
+const RETRYABLE_STATUSES = new Set(['failed', 'partial', 'aborted']);
+const ACTIVE_STATUSES = new Set(['queued', 'running', 'preparing', 'cancelling']);
+const SUCCESSFUL_TERMINAL_STATUSES = new Set(['completed', 'partial']);
+const IMPORT_POLL_INTERVAL_MS = 1500;
 
 function status_label(value: string): string {
   return STATUS_LABELS[value] ?? value;
@@ -99,6 +103,18 @@ function format_count(done: number, total: number): string {
   return `${done}/${total}`;
 }
 
+function derive_paste_title(title: string, content: string): string {
+  const clean_title = title.trim();
+  if (clean_title) {
+    return clean_title;
+  }
+  const first_content_line = content
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .find(Boolean);
+  return first_content_line ? first_content_line.slice(0, 80) : '粘贴导入';
+}
+
 export function ImportPanel(props: ImportPanelProps) {
   const [active_tab, set_active_tab] = useState<ImportInputTab>('upload');
   const [jobs, set_jobs] = useState<ImportJobItem[]>([]);
@@ -114,15 +130,63 @@ export function ImportPanel(props: ImportPanelProps) {
   const [files, set_files] = useState<File[]>([]);
   const [busy, set_busy] = useState(false);
   const [message, set_message] = useState<string | null>(null);
+  const active_job_ids_ref = useRef<Set<string>>(new Set());
+  const notified_job_versions_ref = useRef<Set<string>>(new Set());
+
+  const reconcile_import_notifications = useCallback((next_jobs: ImportJobItem[]) => {
+    const previous_active_ids = active_job_ids_ref.current;
+    const next_active_ids = new Set<string>();
+
+    for (const job of next_jobs) {
+      if (ACTIVE_STATUSES.has(job.status)) {
+        next_active_ids.add(job.id);
+        continue;
+      }
+      const notification_key = `${job.id}:${job.status}:${job.updated_at}`;
+      if (
+        SUCCESSFUL_TERMINAL_STATUSES.has(job.status)
+        && previous_active_ids.has(job.id)
+        && !notified_job_versions_ref.current.has(notification_key)
+      ) {
+        notified_job_versions_ref.current.add(notification_key);
+        props.on_import_finished();
+      }
+    }
+
+    active_job_ids_ref.current = next_active_ids;
+  }, [props.on_import_finished]);
 
   const load_jobs = useCallback(async () => {
     const next_jobs = await fetch_import_jobs(50);
     set_jobs(next_jobs);
-  }, []);
+    reconcile_import_notifications(next_jobs);
+    return next_jobs;
+  }, [reconcile_import_notifications]);
+
+  const selected_job_summary = useMemo(() => (
+    selected_job_id ? jobs.find((job) => job.id === selected_job_id) ?? null : null
+  ), [jobs, selected_job_id]);
+
+  const has_active_jobs = useMemo(() => jobs.some((job) => ACTIVE_STATUSES.has(job.status)), [jobs]);
+
+  const refresh_jobs = useCallback(() => {
+    set_message(null);
+    void load_jobs().catch((error) => set_message(to_user_error_message(error, 'import')));
+  }, [load_jobs]);
 
   useEffect(() => {
-    void refresh_jobs();
-  }, [load_jobs]);
+    refresh_jobs();
+  }, [refresh_jobs]);
+
+  useEffect(() => {
+    if (!has_active_jobs) {
+      return;
+    }
+    const timer_id = window.setInterval(() => {
+      void load_jobs().catch((error) => set_message(to_user_error_message(error, 'import')));
+    }, IMPORT_POLL_INTERVAL_MS);
+    return () => window.clearInterval(timer_id);
+  }, [has_active_jobs, load_jobs]);
 
   useEffect(() => {
     if (selected_job_id && jobs.some((job) => job.id === selected_job_id)) {
@@ -162,7 +226,7 @@ export function ImportPanel(props: ImportPanelProps) {
     return () => {
       ignore = true;
     };
-  }, [selected_job_id]);
+  }, [selected_job_id, selected_job_summary?.updated_at]);
 
   useEffect(() => {
     let ignore = false;
@@ -187,12 +251,7 @@ export function ImportPanel(props: ImportPanelProps) {
     return () => {
       ignore = true;
     };
-  }, [selected_file_id, selected_job_id]);
-
-  function refresh_jobs(): void {
-    set_message(null);
-    void load_jobs().catch((error) => set_message(to_user_error_message(error, 'import')));
-  }
+  }, [selected_file_id, selected_job?.updated_at, selected_job_id]);
 
   async function run_action(action: () => Promise<unknown>, success: string): Promise<void> {
     set_busy(true);
@@ -202,10 +261,10 @@ export function ImportPanel(props: ImportPanelProps) {
       const job_id = extract_job_id(result);
       if (job_id) {
         set_selected_job_id(job_id);
+        active_job_ids_ref.current = new Set(active_job_ids_ref.current).add(job_id);
       }
       set_message(success);
       await load_jobs();
-      props.on_import_finished();
     } catch (error) {
       set_message(to_user_error_message(error, 'import'));
     } finally {
@@ -214,12 +273,12 @@ export function ImportPanel(props: ImportPanelProps) {
   }
 
   async function submit_paste(): Promise<void> {
-    const clean_title = title.trim();
     const clean_content = content.trim();
-    if (!clean_title || !clean_content) {
-      set_message('粘贴导入需要标题和正文。');
+    if (!clean_content) {
+      set_message('粘贴导入需要正文。');
       return;
     }
+    const clean_title = derive_paste_title(title, clean_content);
     await run_action(
       () => paste_import({ title: clean_title, content: clean_content, strategy, metadata: {} }),
       '粘贴导入任务已提交。',
@@ -277,8 +336,10 @@ export function ImportPanel(props: ImportPanelProps) {
   const pasted_chars = content.trim().length;
   const selected_file = selected_job?.files.find((file) => file.id === selected_file_id) ?? null;
   const selected_file_names = files.map((file) => file.name);
-  const selected_job_summary = selected_job_id ? jobs.find((job) => job.id === selected_job_id) : null;
   const preview_job = selected_job_summary ?? selected_job;
+  const can_submit_upload = !busy && files.length > 0;
+  const can_submit_paste = !busy && content.trim().length > 0;
+  const can_submit_scan = !busy && root_path.trim().length > 0;
 
   function render_job_card(job: ImportJobItem): JSX.Element {
     const is_active = selected_job_id === job.id;
@@ -386,7 +447,7 @@ export function ImportPanel(props: ImportPanelProps) {
                   type='file'
                 />
                 <span className='file-pick-button'>选择文件</span>
-                <span className='file-pick-name'>{files.length ? `已选择 ${files.length} 个文件` : '支持 txt、md、json 等文本文件'}</span>
+                <span className='file-pick-name'>{files.length ? `已选择 ${files.length} 个文件` : '支持 txt、md、json、pdf、docx、xlsx 等文件'}</span>
               </label>
               <div className='selected-file-list'>
                 {files.map((file) => (
@@ -398,7 +459,7 @@ export function ImportPanel(props: ImportPanelProps) {
                 {!files.length ? <p className='muted'>暂无待上传文件。</p> : null}
               </div>
               <div className='button-row'>
-                <button disabled={busy} onClick={() => void submit_upload()} type='button'>提交上传任务</button>
+                <button disabled={!can_submit_upload} onClick={() => void submit_upload()} type='button'>提交上传任务</button>
                 <button disabled={busy || !files.length} onClick={() => set_files([])} type='button'>清空文件</button>
               </div>
             </div>
@@ -407,14 +468,14 @@ export function ImportPanel(props: ImportPanelProps) {
           {active_tab === 'paste' ? (
             <div className='import-tab-panel'>
               <label className='field'>
-                <span>标题</span>
-                <input onChange={(event) => set_title(event.target.value)} value={title} />
+                <span>标题（可选）</span>
+                <input onChange={(event) => set_title(event.target.value)} placeholder='留空时自动使用正文首行' value={title} />
               </label>
               <label className='field'>
                 <span>正文</span>
-                <textarea onChange={(event) => set_content(event.target.value)} rows={7} value={content} />
+                <textarea onChange={(event) => set_content(event.target.value)} placeholder='粘贴要导入的知识内容' rows={7} value={content} />
               </label>
-              <button disabled={busy} onClick={() => void submit_paste()} type='button'>提交粘贴任务</button>
+              <button disabled={!can_submit_paste} onClick={() => void submit_paste()} type='button'>提交粘贴任务</button>
             </div>
           ) : null}
 
@@ -422,13 +483,13 @@ export function ImportPanel(props: ImportPanelProps) {
             <div className='import-tab-panel'>
               <label className='field'>
                 <span>根路径</span>
-                <input onChange={(event) => set_root_path(event.target.value)} value={root_path} />
+                <input onChange={(event) => set_root_path(event.target.value)} placeholder='输入允许扫描的本地目录' value={root_path} />
               </label>
               <label className='field'>
                 <span>Glob</span>
                 <input onChange={(event) => set_glob_pattern(event.target.value)} value={glob_pattern} />
               </label>
-              <button disabled={busy} onClick={() => void submit_scan()} type='button'>提交扫描任务</button>
+              <button disabled={!can_submit_scan} onClick={() => void submit_scan()} type='button'>提交扫描任务</button>
             </div>
           ) : null}
 
@@ -493,7 +554,7 @@ export function ImportPanel(props: ImportPanelProps) {
                 >
                   取消任务
                 </button>
-                <button disabled={busy} onClick={() => void retry_job(selected_job.id)} type='button'>重试失败项</button>
+                <button disabled={busy || !RETRYABLE_STATUSES.has(selected_job.status)} onClick={() => void retry_job(selected_job.id)} type='button'>重试失败项</button>
               </div>
 
               <div className='import-detail-grid'>

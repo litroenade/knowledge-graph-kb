@@ -60,7 +60,11 @@ export function SourceDetailPanel(props: SourceDetailPanelProps) {
         set_detail(next_detail);
         set_paragraphs(next_paragraphs);
         set_worksheets(next_worksheets);
-        set_worksheet_key((current) => current || next_worksheets[0]?.worksheet_key || '');
+        set_worksheet_key((current) =>
+          next_worksheets.some((worksheet) => worksheet.worksheet_key === current)
+            ? current
+            : next_worksheets[0]?.worksheet_key || '',
+        );
       })
       .catch((error) => {
         if (!cancelled) {
@@ -113,6 +117,13 @@ export function SourceDetailPanel(props: SourceDetailPanelProps) {
     set_page(1);
   }
 
+  function change_version(next_version_id: string): void {
+    set_version_id(next_version_id);
+    set_worksheet_key('');
+    set_preview(null);
+    set_page(1);
+  }
+
   return (
     <section className='panel-body source-detail-panel'>
       <div className='section-heading'>
@@ -132,7 +143,7 @@ export function SourceDetailPanel(props: SourceDetailPanelProps) {
       {detail ? (
         <label className='field'>
           <span>版本</span>
-          <select onChange={(event) => set_version_id(event.target.value)} value={version_id}>
+          <select onChange={(event) => change_version(event.target.value)} value={version_id}>
             <option value=''>当前激活版本</option>
             {detail.versions.map((version) => (
               <option key={version.id} value={version.id}>v{version.version_number} · {version.status}</option>

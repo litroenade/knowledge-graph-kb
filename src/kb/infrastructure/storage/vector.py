@@ -3,6 +3,7 @@
 import json
 from dataclasses import dataclass
 from pathlib import Path
+from threading import RLock
 from typing import Any, cast
 
 import faiss
@@ -56,27 +57,31 @@ class VectorIndex:
         self._dimension: int | None = None
         self._model_signature = ""
         self._metadata: list[dict[str, Any]] = []
+        self._lock = RLock()
         self._load_state()
 
     @property
     def model_signature(self) -> str:
-        return self._model_signature
+        with self._lock:
+            return self._model_signature
 
     @property
     def record_count(self) -> int:
-        return len(self._metadata)
+        with self._lock:
+            return len(self._metadata)
 
     def describe(self) -> dict[str, Any]:
-        return {
-            "store_dir": str(self.store_dir),
-            "index_path": str(self.index_path),
-            "metadata_path": str(self.metadata_path),
-            "record_count": len(self._metadata),
-            "dimension": self._dimension,
-            "model_signature": self._model_signature,
-            "index_exists": self.index_path.exists(),
-            "metadata_exists": self.metadata_path.exists(),
-        }
+        with self._lock:
+            return {
+                "store_dir": str(self.store_dir),
+                "index_path": str(self.index_path),
+                "metadata_path": str(self.metadata_path),
+                "record_count": len(self._metadata),
+                "dimension": self._dimension,
+                "model_signature": self._model_signature,
+                "index_exists": self.index_path.exists(),
+                "metadata_exists": self.metadata_path.exists(),
+            }
 
     def check_readable(self) -> None:
         if self.metadata_path.exists():
@@ -91,30 +96,45 @@ class VectorIndex:
         records: list[VectorIndexRecord],
         embeddings: list[list[float]],
     ) -> None:
-        if not records:
-            return
-        if len(records) != len(embeddings):
-            raise ValueError("vector record count must match embedding count")
-        if self._model_signature and self._model_signature != model_signature:
-            self.reset()
+        with self._lock:
+            if not records:
+                return
+            if len(records) != len(embeddings):
+                raise ValueError("vector record count must match embedding count")
 
-        record_map: dict[str, dict[str, Any]] = {str(item["paragraph_id"]): item for item in self._metadata}
-        for record, embedding in zip(records, embeddings, strict=True):
-            record_map[record.paragraph_id] = {
-                "paragraph_id": record.paragraph_id,
-                "source_id": record.source_id,
-                "version_id": record.version_id,
-                "node_id": record.node_id,
-                "text": record.text,
-                "knowledge_type": record.knowledge_type,
-                "file_path": record.file_path,
-                "embedding": [float(value) for value in embedding],
-            }
+            base_metadata = [] if self._model_signature and self._model_signature != model_signature else self._metadata
+            record_map: dict[str, dict[str, Any]] = {str(item["paragraph_id"]): item for item in base_metadata}
+            for record, embedding in zip(records, embeddings, strict=True):
+                record_map[record.paragraph_id] = self._metadata_payload(record, embedding)
 
-        self._model_signature = model_signature
-        self._metadata = list(record_map.values())
-        self._rebuild_index()
-        self._persist_state()
+            next_metadata = list(record_map.values())
+            next_index, next_dimension = self._build_index(next_metadata)
+            self._persist_state(model_signature=model_signature, metadata=next_metadata, index=next_index)
+            self._model_signature = model_signature
+            self._metadata = next_metadata
+            self._index = next_index
+            self._dimension = next_dimension
+
+    def replace_embeddings(
+        self,
+        *,
+        model_signature: str,
+        records: list[VectorIndexRecord],
+        embeddings: list[list[float]],
+    ) -> None:
+        with self._lock:
+            if len(records) != len(embeddings):
+                raise ValueError("vector record count must match embedding count")
+            next_metadata = [
+                self._metadata_payload(record, embedding)
+                for record, embedding in zip(records, embeddings, strict=True)
+            ]
+            next_index, next_dimension = self._build_index(next_metadata)
+            self._persist_state(model_signature=model_signature, metadata=next_metadata, index=next_index)
+            self._model_signature = model_signature
+            self._metadata = next_metadata
+            self._index = next_index
+            self._dimension = next_dimension
 
     def search(
         self,
@@ -125,74 +145,82 @@ class VectorIndex:
         scope_pairs: list[tuple[str, str]] | None = None,
         paragraph_ids: list[str] | None = None,
     ) -> list[VectorSearchResult]:
-        if self._model_signature and self._model_signature != model_signature:
-            self.reset()
-            raise StaleVectorIndexError("vector index model signature mismatch")
-        if self._index is None or not self._metadata or limit <= 0:
-            return []
+        with self._lock:
+            if self._model_signature and self._model_signature != model_signature:
+                self.reset()
+                raise StaleVectorIndexError("vector index model signature mismatch")
+            if self._index is None or not self._metadata or limit <= 0:
+                return []
 
-        query_matrix = self._normalize_vectors([query_embedding])
-        fetch_limit = self._search_limit(limit=limit, has_filter=bool(scope_pairs or paragraph_ids))
-        similarities, positions = self._index.search(query_matrix, fetch_limit)
-        allowed_pairs = set(scope_pairs or [])
-        allowed_paragraphs = set(paragraph_ids or [])
-        results: list[VectorSearchResult] = []
+            query_matrix = self._normalize_vectors([query_embedding])
+            fetch_limit = self._search_limit(limit=limit, has_filter=bool(scope_pairs or paragraph_ids))
+            similarities, positions = self._index.search(query_matrix, fetch_limit)
+            allowed_pairs = set(scope_pairs or [])
+            allowed_paragraphs = set(paragraph_ids or [])
+            results: list[VectorSearchResult] = []
 
-        for similarity, position in zip(similarities[0].tolist(), positions[0].tolist(), strict=True):
-            if position < 0 or position >= len(self._metadata):
-                continue
-            payload = self._metadata[position]
-            pair = (str(payload["source_id"]), str(payload.get("version_id") or ""))
-            if allowed_pairs and pair not in allowed_pairs:
-                continue
-            if allowed_paragraphs and str(payload["paragraph_id"]) not in allowed_paragraphs:
-                continue
-            score = float(similarity)
-            results.append(
-                VectorSearchResult(
-                    paragraph_id=str(payload["paragraph_id"]),
-                    source_id=str(payload["source_id"]),
-                    version_id=str(payload.get("version_id") or ""),
-                    node_id=str(payload["node_id"]),
-                    text=str(payload["text"]),
-                    knowledge_type=str(payload["knowledge_type"]),
-                    file_path=str(payload.get("file_path") or "").strip() or None,
-                    distance=1.0 - score,
-                    similarity=score,
+            for similarity, position in zip(similarities[0].tolist(), positions[0].tolist(), strict=True):
+                if position < 0 or position >= len(self._metadata):
+                    continue
+                payload = self._metadata[position]
+                pair = (str(payload["source_id"]), str(payload.get("version_id") or ""))
+                if allowed_pairs and pair not in allowed_pairs:
+                    continue
+                if allowed_paragraphs and str(payload["paragraph_id"]) not in allowed_paragraphs:
+                    continue
+                score = float(similarity)
+                results.append(
+                    VectorSearchResult(
+                        paragraph_id=str(payload["paragraph_id"]),
+                        source_id=str(payload["source_id"]),
+                        version_id=str(payload.get("version_id") or ""),
+                        node_id=str(payload["node_id"]),
+                        text=str(payload["text"]),
+                        knowledge_type=str(payload["knowledge_type"]),
+                        file_path=str(payload.get("file_path") or "").strip() or None,
+                        distance=1.0 - score,
+                        similarity=score,
+                    )
                 )
-            )
-            if len(results) >= limit:
-                break
+                if len(results) >= limit:
+                    break
 
-        return results
+            return results
 
     def remove_source(self, source_id: str) -> None:
-        next_metadata = [payload for payload in self._metadata if str(payload.get("source_id")) != source_id]
-        if len(next_metadata) == len(self._metadata):
-            return
-        self._metadata = next_metadata
-        self._rebuild_index()
-        self._persist_state()
+        with self._lock:
+            next_metadata = [payload for payload in self._metadata if str(payload.get("source_id")) != source_id]
+            if len(next_metadata) == len(self._metadata):
+                return
+            next_index, next_dimension = self._build_index(next_metadata)
+            self._persist_state(model_signature=self._model_signature, metadata=next_metadata, index=next_index)
+            self._metadata = next_metadata
+            self._index = next_index
+            self._dimension = next_dimension
 
     def remove_paragraphs(self, paragraph_ids: list[str]) -> None:
-        if not paragraph_ids:
-            return
-        removed_ids = {str(paragraph_id) for paragraph_id in paragraph_ids}
-        next_metadata = [
-            payload for payload in self._metadata if str(payload.get("paragraph_id")) not in removed_ids
-        ]
-        if len(next_metadata) == len(self._metadata):
-            return
-        self._metadata = next_metadata
-        self._rebuild_index()
-        self._persist_state()
+        with self._lock:
+            if not paragraph_ids:
+                return
+            removed_ids = {str(paragraph_id) for paragraph_id in paragraph_ids}
+            next_metadata = [
+                payload for payload in self._metadata if str(payload.get("paragraph_id")) not in removed_ids
+            ]
+            if len(next_metadata) == len(self._metadata):
+                return
+            next_index, next_dimension = self._build_index(next_metadata)
+            self._persist_state(model_signature=self._model_signature, metadata=next_metadata, index=next_index)
+            self._metadata = next_metadata
+            self._index = next_index
+            self._dimension = next_dimension
 
     def reset(self) -> None:
-        self._metadata = []
-        self._dimension = None
-        self._index = None
-        self._model_signature = ""
-        self._persist_state()
+        with self._lock:
+            self._persist_state(model_signature="", metadata=[], index=None)
+            self._metadata = []
+            self._dimension = None
+            self._index = None
+            self._model_signature = ""
 
     def _load_state(self) -> None:
         if self.metadata_path.exists():
@@ -204,36 +232,68 @@ class VectorIndex:
             loaded_index: Any = faiss.read_index(str(self.index_path))
             self._index = loaded_index
             self._dimension = int(cast(Any, loaded_index).d)
+            if self._metadata and int(cast(Any, loaded_index).ntotal) != len(self._metadata):
+                self._index, self._dimension = self._build_index(self._metadata)
+                self._persist_state(
+                    model_signature=self._model_signature,
+                    metadata=self._metadata,
+                    index=self._index,
+                )
             return
         if self._metadata:
-            self._rebuild_index()
-            self._persist_state()
+            self._index, self._dimension = self._build_index(self._metadata)
+            self._persist_state(
+                model_signature=self._model_signature,
+                metadata=self._metadata,
+                index=self._index,
+            )
 
-    def _persist_state(self) -> None:
+    def _persist_state(self, *, model_signature: str, metadata: list[dict[str, Any]], index: Any | None) -> None:
         payload = {
-            "model_signature": self._model_signature,
-            "records": self._metadata,
+            "model_signature": model_signature,
+            "records": metadata,
         }
-        self.metadata_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-        if self._index is None:
-            if self.index_path.exists():
-                self.index_path.unlink()
-            return
-        faiss.write_index(self._index, str(self.index_path))
+        metadata_temp_path = self.metadata_path.with_name(f"{self.metadata_path.name}.tmp")
+        index_temp_path = self.index_path.with_name(f"{self.index_path.name}.tmp")
+        try:
+            if index is not None:
+                faiss.write_index(index, str(index_temp_path))
+            metadata_temp_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+            metadata_temp_path.replace(self.metadata_path)
+            if index is None:
+                if self.index_path.exists():
+                    self.index_path.unlink()
+                return
+            index_temp_path.replace(self.index_path)
+        finally:
+            if metadata_temp_path.exists():
+                metadata_temp_path.unlink()
+            if index_temp_path.exists():
+                index_temp_path.unlink()
 
-    def _rebuild_index(self) -> None:
-        if not self._metadata:
-            self._dimension = None
-            self._index = None
-            return
+    def _build_index(self, metadata: list[dict[str, Any]]) -> tuple[Any | None, int | None]:
+        if not metadata:
+            return None, None
         vectors = self._normalize_vectors(
-            [list(item["embedding"]) for item in self._metadata],
+            [list(item["embedding"]) for item in metadata],
             enforce_dim=False,
         )
-        self._dimension = int(vectors.shape[1])
-        index: Any = faiss.IndexFlatIP(self._dimension)
+        dimension = int(vectors.shape[1])
+        index: Any = faiss.IndexFlatIP(dimension)
         index.add(vectors)
-        self._index = index
+        return index, dimension
+
+    def _metadata_payload(self, record: VectorIndexRecord, embedding: list[float]) -> dict[str, Any]:
+        return {
+            "paragraph_id": record.paragraph_id,
+            "source_id": record.source_id,
+            "version_id": record.version_id,
+            "node_id": record.node_id,
+            "text": record.text,
+            "knowledge_type": record.knowledge_type,
+            "file_path": record.file_path,
+            "embedding": [float(value) for value in embedding],
+        }
 
     def _normalize_vectors(self, vectors: list[list[float]], *, enforce_dim: bool = True) -> np.ndarray:
         matrix = np.asarray(vectors, dtype="float32")

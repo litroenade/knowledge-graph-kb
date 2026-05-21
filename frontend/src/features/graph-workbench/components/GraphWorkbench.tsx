@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type FocusEvent, type PointerEvent } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type FocusEvent, type PointerEvent } from 'react';
 
 import { DEFAULT_SCOPE, fetch_edge_detail, fetch_graph, fetch_node_detail, fetch_ready, fetch_sources } from '../../../shared/api/kb';
 import { is_not_found_api_error, to_user_error_message } from '../../../shared/api/errorMessages';
@@ -123,11 +123,20 @@ export function GraphWorkbench() {
     [evidence_anchor, selected, view],
   );
   const layout_key = useMemo(
-    () => build_layout_storage_key({ view, density, scope: graph_scope }),
-    [density, graph_scope, view],
+    () =>
+      build_layout_storage_key({
+        density,
+        graph_mode,
+        local_depth,
+        scope: graph_scope,
+        search,
+        selected: graph_focus_selection,
+        view,
+      }),
+    [density, graph_focus_selection, graph_mode, graph_scope, local_depth, search, view],
   );
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (signal?: AbortSignal) => {
     set_loading(true);
     set_error(null);
     set_graph_notice(null);
@@ -141,9 +150,12 @@ export function GraphWorkbench() {
 
       if (graph_query_plan.kind === 'local-empty') {
         const [next_ready, next_sources] = await Promise.all([
-          fetch_ready().catch(() => null),
-          fetch_sources(),
+          fetch_ready({ signal }).catch(() => null),
+          fetch_sources({ signal }),
         ]);
+        if (signal?.aborted) {
+          return;
+        }
         set_ready(next_ready);
         set_sources(next_sources);
         set_graph(graph_query_plan.graph);
@@ -151,11 +163,15 @@ export function GraphWorkbench() {
         return;
       }
 
+      const options = { ...graph_query_plan.options, signal };
       const [next_ready, next_sources, next_graph] = await Promise.all([
-        fetch_ready().catch(() => null),
-        fetch_sources(),
-        fetch_graph(graph_query_plan.options),
+        fetch_ready({ signal }).catch(() => null),
+        fetch_sources({ signal }),
+        fetch_graph(options),
       ]);
+      if (signal?.aborted) {
+        return;
+      }
       set_ready(next_ready);
       set_sources(next_sources);
       set_graph(next_graph);
@@ -163,14 +179,25 @@ export function GraphWorkbench() {
         issue_viewport(graph_query_selection ? 'focus' : 'fit');
       }
     } catch (current_error) {
-      set_error(to_user_error_message(current_error, 'graph'));
+      if (current_error instanceof Error && current_error.name === 'AbortError') {
+        return;
+      }
+      if (!signal?.aborted) {
+        set_error(to_user_error_message(current_error, 'graph'));
+      }
     } finally {
-      set_loading(false);
+      if (!signal?.aborted) {
+        set_loading(false);
+      }
     }
   }, [density, graph_query_selection, graph_scope, view]);
 
   useEffect(() => {
-    void load();
+    const controller = new AbortController();
+    void load(controller.signal);
+    return () => {
+      controller.abort();
+    };
   }, [load]);
 
   useEffect(() => {
@@ -226,7 +253,7 @@ export function GraphWorkbench() {
   }, [projected.nodes, search]);
 
   useEffect(() => {
-    let cancelled = false;
+    const controller = new AbortController();
     set_node_detail(null);
     set_edge_detail(null);
     set_detail_notice(null);
@@ -235,18 +262,21 @@ export function GraphWorkbench() {
     }
     const detail_request =
       selected.type === 'node'
-        ? fetch_node_detail(selected.id).then((detail) => {
-            if (!cancelled) {
+        ? fetch_node_detail(selected.id, { signal: controller.signal }).then((detail) => {
+            if (!controller.signal.aborted) {
               set_node_detail(detail);
             }
           })
-        : fetch_edge_detail(selected.id).then((detail) => {
-            if (!cancelled) {
+        : fetch_edge_detail(selected.id, { signal: controller.signal }).then((detail) => {
+            if (!controller.signal.aborted) {
               set_edge_detail(detail);
             }
           });
     detail_request.catch((current_error) => {
-      if (!cancelled) {
+      if (current_error instanceof Error && current_error.name === 'AbortError') {
+        return;
+      }
+      if (!controller.signal.aborted) {
         if (selected.type === 'edge' && is_not_found_api_error(current_error, 'graph_edge_not_found')) {
           set_detail_notice(to_user_error_message(current_error, 'edge-detail'));
           return;
@@ -255,7 +285,7 @@ export function GraphWorkbench() {
       }
     });
     return () => {
-      cancelled = true;
+      controller.abort();
     };
   }, [selected]);
 
@@ -460,7 +490,7 @@ export function GraphWorkbench() {
     );
   }
 
-  const active_physics = physics_running && profile.physics_enabled;
+  const active_physics = workspace_view === 'graph' && physics_running && profile.physics_enabled;
   const workspace_chrome = resolve_workspace_chrome(workspace_view);
   const is_page_workspace = workspace_view !== 'graph';
   const workbench_class_name = [
@@ -532,7 +562,7 @@ export function GraphWorkbench() {
         on_toggle_source={toggle_source}
       />
 
-      {workspace_view === 'graph' ? (
+      <div style={{ display: workspace_view === 'graph' ? 'contents' : 'none' }}>
         <GraphWorkspace
           active_physics={active_physics}
           error={error}
@@ -562,15 +592,17 @@ export function GraphWorkbench() {
           on_select_node={select_node}
           on_viewport_command={issue_viewport}
         />
-      ) : (
+      </div>
+
+      <div style={{ display: workspace_view !== 'graph' ? 'contents' : 'none' }}>
         <PrimaryWorkspace
           ready={ready}
           scope={graph_scope}
-          workspace_view={workspace_view}
+          workspace_view={workspace_view as any}
           on_focus_node={select_node}
           on_import_finished={load}
         />
-      )}
+      </div>
 
       {workspace_chrome.show_graph_context_panel ? (
         <GraphContextAside

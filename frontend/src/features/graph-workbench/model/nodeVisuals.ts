@@ -33,23 +33,23 @@ export function resolve_node_visual_state(input: NodeVisualInput): NodeVisualSta
   return {
     fill: {
       color: input.selected ? 0xffffff : input.color,
-      offset: input.selected ? 5 : 0,
-      alpha: input.selected ? 0.98 : input.active ? (input.secondary ? 0.54 : 0.86) : 0.12,
+      offset: input.selected ? 6 : 0,
+      alpha: input.selected ? 1.0 : input.active ? (input.secondary ? 0.6 : 0.95) : 0.15,
     },
     base_ring: input.selected || input.active
       ? {
           color: input.selected ? 0xbae6fd : input.color,
-          width: input.selected ? 2.4 : 1.2,
-          alpha: input.selected ? 0.9 : 0.34,
-          offset: 6,
+          width: input.selected ? 3 : 1.5,
+          alpha: input.selected ? 0.95 : 0.45,
+          offset: 7,
         }
       : null,
     fixed_ring: input.fixed
       ? {
-          color: 0xfacc15,
-          width: input.selected ? 2.2 : 1.7,
-          alpha: input.active || input.selected ? 0.94 : 0.24,
-          offset: input.selected ? 11 : 8,
+          color: 0xfbbf24,
+          width: input.selected ? 2.5 : 2,
+          alpha: input.active || input.selected ? 1.0 : 0.3,
+          offset: input.selected ? 12 : 9,
         }
       : null,
   };

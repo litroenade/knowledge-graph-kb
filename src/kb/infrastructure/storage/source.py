@@ -529,6 +529,20 @@ class SourceStore:
     def list_all_paragraphs(self) -> list[dict[str, Any]]:
         return self.gateway.fetch_all("SELECT * FROM paragraphs ORDER BY source_id, version_id, position")
 
+    def list_indexable_paragraphs(self) -> list[dict[str, Any]]:
+        return self.gateway.fetch_all(
+            """
+            SELECT paragraphs.*, sources.storage_path AS file_path
+            FROM paragraphs
+            JOIN source_versions
+              ON source_versions.id = paragraphs.version_id
+             AND source_versions.source_id = paragraphs.source_id
+            JOIN sources ON sources.id = paragraphs.source_id
+            WHERE source_versions.status IN ('active', 'archived')
+            ORDER BY paragraphs.source_id, paragraphs.version_id, paragraphs.position
+            """
+        )
+
     def get_source_detail(self, source_id: str, version_id: str | None = None) -> dict[str, Any] | None:
         source = self.get_source(source_id)
         if source is None:

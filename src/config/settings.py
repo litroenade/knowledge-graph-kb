@@ -7,6 +7,35 @@ from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 ROOT_DIR = Path(__file__).resolve().parents[2]
+ROOT_ENV_FILE = ROOT_DIR / ".env"
+DEFAULT_ROOT_ENV_FILE_CONTENT = """# Backend runtime configuration.
+# This file is auto-created when missing. Edit it to override local backend settings.
+
+KB_DATA_DIR=./data/kb
+KB_DATABASE_NAME=kb.sqlite3
+KB_VECTOR_INDEX_DIR_NAME=vector_index
+KB_UPLOAD_DIR_NAME=uploads
+KB_SECRET_DIR_NAME=secrets
+MODEL_CONFIG_SECRET_NAME=model_config.key
+KB_SCAN_ROOTS=["./data/kb/uploads"]
+
+FRONTEND_DIST_DIR=./frontend/dist
+SERVER_HOST=127.0.0.1
+SERVER_PORT=8000
+LOG_LEVEL=INFO
+CORS_ORIGINS=["http://localhost:5173","http://127.0.0.1:5173"]
+
+EMBEDDING_BATCH_SIZE=32
+CHUNK_SIZE_TOKENS=600
+CHUNK_OVERLAP_TOKENS=120
+QUERY_CONTEXT_CHUNKS=6
+QUERY_RRF_K=60
+QUERY_STRUCTURED_SHORT_CIRCUIT_HITS=3
+QUERY_PPR_ENABLED=false
+QUERY_PPR_MIN_HITS=5
+QUERY_PPR_CANDIDATE_LIMIT=30
+QUERY_HISTORY_TURNS=3
+"""
 
 
 class Settings(BaseSettings):
@@ -26,11 +55,11 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("MODEL_CONFIG_SECRET_NAME"),
     )
     kb_scan_roots: list[str] = Field(
-        default_factory=lambda: ["./data/kb/uploads", "./"],
+        default_factory=lambda: ["./data/kb/uploads"],
         validation_alias=AliasChoices("KB_SCAN_ROOTS"),
     )
     frontend_dist_dir: str = Field(default="./frontend/dist", validation_alias=AliasChoices("FRONTEND_DIST_DIR"))
-    server_host: str = Field(default="0.0.0.0", validation_alias=AliasChoices("SERVER_HOST"))
+    server_host: str = Field(default="127.0.0.1", validation_alias=AliasChoices("SERVER_HOST"))
     server_port: int = Field(default=8000, validation_alias=AliasChoices("SERVER_PORT"))
     log_level: str = Field(default="DEBUG", validation_alias=AliasChoices("LOG_LEVEL"))
     embedding_batch_size: int = Field(default=32, validation_alias=AliasChoices("EMBEDDING_BATCH_SIZE"))
@@ -52,7 +81,7 @@ class Settings(BaseSettings):
     )
 
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=ROOT_ENV_FILE,
         env_prefix="",
         case_sensitive=False,
         populate_by_name=True,
@@ -95,7 +124,17 @@ class Settings(BaseSettings):
 
 @lru_cache
 def get_settings() -> Settings:
+    ensure_root_env_file()
     return Settings()
+
+
+def ensure_root_env_file() -> Path:
+    if ROOT_ENV_FILE.exists():
+        if not ROOT_ENV_FILE.is_file():
+            raise RuntimeError(f"Root env path is not a file: {ROOT_ENV_FILE}")
+        return ROOT_ENV_FILE
+    ROOT_ENV_FILE.write_text(DEFAULT_ROOT_ENV_FILE_CONTENT, encoding="utf-8")
+    return ROOT_ENV_FILE
 
 
 def ensure_app_dirs(settings: Settings | None = None) -> None:

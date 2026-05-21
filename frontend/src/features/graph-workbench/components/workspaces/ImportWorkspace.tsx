@@ -1,5 +1,6 @@
 import type { SystemReady } from '../../../../shared/types/kb';
 import { ImportPanel } from '../panels/ImportPanel';
+import { WorkspaceHeader } from './WorkspaceHeader';
 import { ModelConfigPopover } from './ModelConfigPopover';
 
 interface ImportWorkspaceProps {
@@ -18,13 +19,8 @@ const IMPORT_FLOW_STEPS = [
 export function ImportWorkspace(props: ImportWorkspaceProps) {
   return (
     <section aria-label='导入中心' className='workspace-stage'>
-      <header className='workspace-header'>
-        <div>
-          <span>Import</span>
-          <h1>导入中心</h1>
-          <p>按任务流完成输入、解析、预览、执行和结果确认，导入完成后刷新图谱数据。</p>
-        </div>
-        <div className='workspace-header-actions'>
+      <WorkspaceHeader
+        actions={
           <ModelConfigPopover
             button_label='模型配置'
             dialog_label='导入模型配置'
@@ -32,8 +28,11 @@ export function ImportWorkspace(props: ImportWorkspaceProps) {
             on_saved={props.on_import_finished}
             ready={props.ready}
           />
-        </div>
-      </header>
+        }
+        description='按任务流完成输入、解析、预览、执行和结果确认，导入完成后刷新图谱数据。'
+        eyebrow='Import'
+        title='导入中心'
+      />
 
       <div className='workspace-content import-workspace'>
         <aside aria-label='导入流程' className='workspace-process'>

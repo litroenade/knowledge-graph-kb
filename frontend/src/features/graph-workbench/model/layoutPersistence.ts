@@ -1,4 +1,5 @@
 import type { GraphDataView, KBScope } from '../../../shared/types/kb';
+import type { Selection } from './graphModel';
 
 export const GRAPH_LAYOUT_SNAPSHOT_VERSION = 1;
 
@@ -18,6 +19,10 @@ export interface GraphLayoutSnapshot {
 export interface GraphLayoutKeyInput {
   view: GraphDataView;
   density: number;
+  graph_mode: 'global' | 'local';
+  local_depth: number;
+  search: string;
+  selected: Selection;
   scope: KBScope;
 }
 
@@ -25,6 +30,10 @@ export function build_layout_storage_key(input: GraphLayoutKeyInput): string {
   const canonical = JSON.stringify({
     view: input.view,
     density: Math.round(input.density),
+    graph_mode: input.graph_mode,
+    local_depth: input.local_depth,
+    search: input.search.trim(),
+    selected: input.selected ? { type: input.selected.type, id: input.selected.id } : null,
     scope: {
       mode: input.scope.mode,
       source_ids: [...input.scope.source_ids].sort(),

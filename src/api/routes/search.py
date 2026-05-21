@@ -48,13 +48,16 @@ def search_records(
 
 @search_router.post("/entities", response_model=EntitySearchResponse)
 def search_entities(payload: EntitySearchRequest, entity_search_service=Depends(get_entity_search_service)) -> EntitySearchResponse:
-    return EntitySearchResponse(
-        **entity_search_service.search_entities(
-            query=payload.query,
-            scope=payload.scope.model_dump(),
-            limit=payload.limit,
+    try:
+        return EntitySearchResponse(
+            **entity_search_service.search_entities(
+                query=payload.query,
+                scope=payload.scope.model_dump(),
+                limit=payload.limit,
+            )
         )
-    )
+    except ValueError as exc:
+        raise api_error(status_code=400, code="invalid_entity_search", message=str(exc)) from exc
 
 
 @search_router.post("/relations", response_model=RelationSearchResponse)
@@ -62,21 +65,27 @@ def search_relations(
     payload: RelationSearchRequest,
     relation_search_service=Depends(get_relation_search_service),
 ) -> RelationSearchResponse:
-    return RelationSearchResponse(
-        **relation_search_service.search_relations(
-            query=payload.query,
-            scope=payload.scope.model_dump(),
-            limit=payload.limit,
+    try:
+        return RelationSearchResponse(
+            **relation_search_service.search_relations(
+                query=payload.query,
+                scope=payload.scope.model_dump(),
+                limit=payload.limit,
+            )
         )
-    )
+    except ValueError as exc:
+        raise api_error(status_code=400, code="invalid_relation_search", message=str(exc)) from exc
 
 
 @search_router.post("/sources", response_model=SourceSearchResponse)
 def search_sources(payload: SourceSearchRequest, source_search_service=Depends(get_source_search_service)) -> SourceSearchResponse:
-    return SourceSearchResponse(
-        **source_search_service.search_sources(
-            query=payload.query,
-            scope=payload.scope.model_dump(),
-            limit=payload.limit,
+    try:
+        return SourceSearchResponse(
+            **source_search_service.search_sources(
+                query=payload.query,
+                scope=payload.scope.model_dump(),
+                limit=payload.limit,
+            )
         )
-    )
+    except ValueError as exc:
+        raise api_error(status_code=400, code="invalid_source_search", message=str(exc)) from exc

@@ -21,7 +21,7 @@ export function to_user_error_message(error: unknown, context: ApiErrorContext):
   }
 
   if (is_backend_connection_error(error)) {
-    return '后端服务未连接，请确认知识库服务已启动并监听 7999。';
+    return '后端服务未连接，请确认知识库服务已启动，并且当前前端的 /api 代理或同源服务可访问。';
   }
 
   if (error instanceof ApiError) {

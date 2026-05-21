@@ -1,5 +1,6 @@
 import type { KBScope, SystemReady } from '../../../../shared/types/kb';
 import { ChatPanel } from '../panels/ChatPanel';
+import { WorkspaceHeader } from './WorkspaceHeader';
 import { ModelConfigPopover } from './ModelConfigPopover';
 
 interface ChatWorkspaceProps {
@@ -19,13 +20,8 @@ const CHAT_AREAS = [
 export function ChatWorkspace(props: ChatWorkspaceProps) {
   return (
     <section aria-label='知识问答' className='workspace-stage'>
-      <header className='workspace-header'>
-        <div>
-          <span>Chat</span>
-          <h1>知识问答</h1>
-          <p>基于当前来源范围进行检索增强问答，回答中的证据可反向聚焦图谱实体。</p>
-        </div>
-        <div className='workspace-header-actions'>
+      <WorkspaceHeader
+        actions={
           <ModelConfigPopover
             button_label='模型配置'
             dialog_label='问答模型配置'
@@ -33,8 +29,11 @@ export function ChatWorkspace(props: ChatWorkspaceProps) {
             on_saved={props.on_saved}
             ready={props.ready}
           />
-        </div>
-      </header>
+        }
+        description='基于当前来源范围进行检索增强问答，回答中的证据可反向聚焦图谱实体。'
+        eyebrow='Chat'
+        title='知识问答'
+      />
 
       <div className='workspace-content chat-workspace'>
         <div className='workspace-primary chat-workspace-main'>

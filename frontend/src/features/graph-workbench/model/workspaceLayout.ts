@@ -1,6 +1,8 @@
 export type WorkspaceView = 'graph' | 'import' | 'chat';
 export type GraphContextPanel = 'inspector' | 'edit' | 'source';
 
+export const WORKSPACE_ITEMS: WorkspaceView[] = ['graph', 'import', 'chat'];
+
 export const WORKSPACE_LABELS: Record<WorkspaceView, string> = {
   graph: '图谱',
   import: '导入中心',

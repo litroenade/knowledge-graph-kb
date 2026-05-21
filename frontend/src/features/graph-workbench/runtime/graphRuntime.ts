@@ -76,6 +76,9 @@ const LABEL_STYLE = new TextStyle({
   fontWeight: '600',
   fill: 0xdbeafe,
 });
+const VIEWPORT_HIT_AREA_RADIUS = 80 * 1000;
+const VIEWPORT_HIT_AREA_SIZE = VIEWPORT_HIT_AREA_RADIUS * 2;
+const BALANCED_LAYOUT_AUTO_FREEZE_MS = 8 * 1000;
 
 export class GraphRuntime {
   private readonly container: HTMLDivElement;
@@ -134,7 +137,12 @@ export class GraphRuntime {
       disableOnContextMenu: true,
     });
     viewport.eventMode = 'static';
-    viewport.forceHitArea = new Rectangle(-80000, -80000, 160000, 160000);
+    viewport.forceHitArea = new Rectangle(
+      -VIEWPORT_HIT_AREA_RADIUS,
+      -VIEWPORT_HIT_AREA_RADIUS,
+      VIEWPORT_HIT_AREA_SIZE,
+      VIEWPORT_HIT_AREA_SIZE
+    );
     viewport.drag().pinch().wheel({ smooth: 4 }).decelerate().clampZoom({ minScale: 0.06, maxScale: 4 });
     viewport.addChild(this.edge_layer, this.node_layer, this.label_layer);
     viewport.on('pointerdown', (event: FederatedPointerEvent) => this.handle_pointer_down(event));
@@ -266,18 +274,14 @@ export class GraphRuntime {
   }
 
   set_scene(scene: GraphRuntimeScene): void {
-    const previous_ids = new Set(this.positions.keys());
     this.scene = scene;
     scene.nodes.forEach((node, index) => {
       if (!this.positions.has(node.id)) {
         this.positions.set(node.id, spiral_position(index, scene.nodes.length));
       }
-      previous_ids.delete(node.id);
     });
-    previous_ids.forEach((node_id) => {
-      this.positions.delete(node_id);
-      this.fixed_node_ids.delete(node_id);
-    });
+    // We intentionally keep previous positions in memory so that when nodes
+    // reappear (e.g., clearing a search filter), they stay where they were.
     this.sync_simulation();
     this.render();
     if (scene.profile.mode === 'static') {
@@ -417,13 +421,25 @@ export class GraphRuntime {
       return;
     }
     const active = contextual.size === 0 || contextual.has(edge.id) || contextual.has(edge.source) || contextual.has(edge.target);
+    
+    if (active) {
+      this.edge_layer
+        .moveTo(source.x, source.y)
+        .lineTo(target.x, target.y)
+        .stroke({
+          color: edge.color,
+          width: Math.max(3, Math.min(8, edge.weight * 2.5)),
+          alpha: 0.15,
+        });
+    }
+
     this.edge_layer
       .moveTo(source.x, source.y)
       .lineTo(target.x, target.y)
       .stroke({
         color: edge.color,
-        width: active ? Math.max(1.1, Math.min(4, edge.weight * 1.4)) : 0.7,
-        alpha: active ? 0.62 : 0.08,
+        width: active ? Math.max(1.5, Math.min(4.5, edge.weight * 1.5)) : 0.8,
+        alpha: active ? 0.75 : 0.12,
       });
   }
 
@@ -442,6 +458,15 @@ export class GraphRuntime {
       secondary,
       selected,
     });
+
+    if (active) {
+      for (let i = 4; i >= 1; i--) {
+        this.node_layer.circle(point.x, point.y, node.radius + visual.fill.offset + i * 3.5).fill({
+          color: node.color,
+          alpha: visual.fill.alpha * (0.08 / i),
+        });
+      }
+    }
 
     this.node_layer.circle(point.x, point.y, node.radius + visual.fill.offset).fill({
       color: visual.fill.color,
@@ -680,7 +705,7 @@ export class GraphRuntime {
       this.simulation = null;
       this.callbacks.on_physics_auto_stop();
       this.render();
-    }, 8000);
+    }, BALANCED_LAYOUT_AUTO_FREEZE_MS);
   }
 
   private clear_auto_freeze_timer(): void {

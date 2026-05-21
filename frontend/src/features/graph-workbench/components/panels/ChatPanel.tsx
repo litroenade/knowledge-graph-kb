@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState, type KeyboardEvent } from 'react';
 
 import {
   create_chat_session,
@@ -37,6 +37,7 @@ export function ChatPanel(props: ChatPanelProps) {
   const [draft, set_draft] = useState('');
   const [search_query, set_search_query] = useState('');
   const [search_kind, set_search_kind] = useState<SearchKind>('records');
+  const [last_search_query, set_last_search_query] = useState<string | null>(null);
   const [top_k, set_top_k] = useState(8);
   const [citation_limit, set_citation_limit] = useState(4);
   const [search_limit, set_search_limit] = useState(20);
@@ -136,6 +137,7 @@ export function ChatPanel(props: ChatPanelProps) {
     const query = search_query.trim();
     if (!query) {
       set_search_results([]);
+      set_last_search_query(null);
       return;
     }
     set_busy(true);
@@ -143,6 +145,7 @@ export function ChatPanel(props: ChatPanelProps) {
     try {
       const results = await run_search(search_kind, query, props.scope, search_limit);
       set_search_results(results);
+      set_last_search_query(query);
     } catch (error) {
       set_message(to_user_error_message(error, 'chat'));
     } finally {
@@ -157,6 +160,15 @@ export function ChatPanel(props: ChatPanelProps) {
     : [];
   const retrieval_trace = latest_assistant_message ? latest_assistant_message.retrieval_trace : null;
   const execution = latest_assistant_message ? latest_assistant_message.execution : null;
+  const can_submit_message = !busy && draft.trim().length > 0;
+  const can_submit_search = !busy && search_query.trim().length > 0;
+
+  function handle_draft_key_down(event: KeyboardEvent<HTMLTextAreaElement>): void {
+    if ((event.ctrlKey || event.metaKey) && event.key === 'Enter' && can_submit_message) {
+      event.preventDefault();
+      void submit_message();
+    }
+  }
 
   return (
     <section className='panel-body chat-panel'>
@@ -205,9 +217,15 @@ export function ChatPanel(props: ChatPanelProps) {
 
           <label className='field'>
             <span>问题</span>
-            <textarea onChange={(event) => set_draft(event.target.value)} rows={4} value={draft} />
+            <textarea
+              onChange={(event) => set_draft(event.target.value)}
+              onKeyDown={handle_draft_key_down}
+              placeholder='输入问题，Ctrl+Enter 发送'
+              rows={4}
+              value={draft}
+            />
           </label>
-          <button disabled={busy} onClick={() => void submit_message()} type='button'>发送到当前范围</button>
+          <button disabled={!can_submit_message} onClick={() => void submit_message()} type='button'>发送到当前范围</button>
         </div>
 
         <aside className='chat-context-panel'>
@@ -249,6 +267,10 @@ export function ChatPanel(props: ChatPanelProps) {
 
       <div className='stacked-tool'>
         <strong>结构化检索</strong>
+        <label className='field'>
+          <span>检索词</span>
+          <input onChange={(event) => set_search_query(event.target.value)} placeholder='输入实体、来源、段落关键词' value={search_query} />
+        </label>
         <div className='form-grid'>
           <select onChange={(event) => set_search_kind(event.target.value as SearchKind)} value={search_kind}>
             <option value='records'>段落/表格记录</option>
@@ -256,17 +278,17 @@ export function ChatPanel(props: ChatPanelProps) {
             <option value='relations'>关系</option>
             <option value='sources'>来源</option>
           </select>
-          <button disabled={busy} onClick={() => void submit_search()} type='button'>检索</button>
+          <label className='field'>
+            <span>结果上限</span>
+            <input min={1} max={50} onChange={(event) => set_search_limit(read_number_input(event.target.value, 1, 50))} type='number' value={search_limit} />
+          </label>
         </div>
-        <label className='field'>
-          <span>结果上限</span>
-          <input min={1} max={50} onChange={(event) => set_search_limit(read_number_input(event.target.value, 1, 50))} type='number' value={search_limit} />
-        </label>
-        <input onChange={(event) => set_search_query(event.target.value)} placeholder='输入检索词' value={search_query} />
+        <button disabled={!can_submit_search} onClick={() => void submit_search()} type='button'>检索</button>
         <div className='search-result-list'>
           {search_results.map((item, index) => (
             <SearchResultRow item={item} key={search_result_key(item, index)} on_focus_node={props.on_focus_node} />
           ))}
+          {!search_results.length ? <p className='muted'>{last_search_query ? '未找到匹配结果。' : '输入检索词后开始检索。'}</p> : null}
         </div>
       </div>
 

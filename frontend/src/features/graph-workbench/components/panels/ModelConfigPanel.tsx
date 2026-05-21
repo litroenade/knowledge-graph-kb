@@ -50,6 +50,21 @@ export function ModelConfigPanel(props: ModelConfigPanelProps) {
     () => props.ready?.checks.find((check) => check.name === 'vector_index') ?? null,
     [props.ready],
   );
+  const required_model_fields_ready =
+    provider.trim().length > 0 &&
+    base_url.trim().length > 0 &&
+    llm_model.trim().length > 0 &&
+    (!presentation.embedding_editable || embedding_model.trim().length > 0);
+  const has_test_key = api_key.trim().length > 0 || (use_saved_api_key && Boolean(config?.has_api_key));
+  const can_save_config = !busy && required_model_fields_ready;
+  const can_test_config = !busy && required_model_fields_ready && has_test_key;
+
+  function change_clear_api_key(next_value: boolean): void {
+    set_clear_api_key(next_value);
+    if (next_value) {
+      set_api_key('');
+    }
+  }
 
   async function save_config(): Promise<void> {
     set_busy(true);
@@ -111,21 +126,22 @@ export function ModelConfigPanel(props: ModelConfigPanelProps) {
       <div className='form-grid'>
         <label className='field'>
           <span>Provider</span>
-          <input onChange={(event) => set_provider(event.target.value)} value={provider} />
+          <input onChange={(event) => set_provider(event.target.value)} placeholder='例如 openai' value={provider} />
         </label>
         <label className='field'>
           <span>Base URL</span>
-          <input onChange={(event) => set_base_url(event.target.value)} value={base_url} />
+          <input onChange={(event) => set_base_url(event.target.value)} placeholder='模型服务地址' value={base_url} />
         </label>
         <label className='field'>
           <span>{presentation.llm_label}</span>
-          <input onChange={(event) => set_llm_model(event.target.value)} value={llm_model} />
+          <input onChange={(event) => set_llm_model(event.target.value)} placeholder='问答模型名称' value={llm_model} />
         </label>
         <label className='field'>
           <span>{presentation.embedding_label}</span>
           <input
             disabled={!presentation.embedding_editable}
             onChange={(event) => set_embedding_model(event.target.value)}
+            placeholder='向量模型名称'
             value={embedding_model}
           />
         </label>
@@ -133,12 +149,12 @@ export function ModelConfigPanel(props: ModelConfigPanelProps) {
 
       <label className='field'>
         <span>API Key（留空则不更新）</span>
-        <input onChange={(event) => set_api_key(event.target.value)} type='password' value={api_key} />
+        <input disabled={clear_api_key} onChange={(event) => set_api_key(event.target.value)} type='password' value={api_key} />
       </label>
 
       <label className='field is-inline'>
         <span>保存时清除已存 Key</span>
-        <input checked={clear_api_key} onChange={(event) => set_clear_api_key(event.target.checked)} type='checkbox' />
+        <input checked={clear_api_key} onChange={(event) => change_clear_api_key(event.target.checked)} type='checkbox' />
       </label>
       <label className='field is-inline'>
         <span>测试时使用已保存 Key</span>
@@ -146,9 +162,11 @@ export function ModelConfigPanel(props: ModelConfigPanelProps) {
       </label>
 
       <div className='button-row'>
-        <button disabled={busy} onClick={() => void save_config()} type='button'>保存配置</button>
-        <button disabled={busy} onClick={() => void run_test()} type='button'>测试连接</button>
+        <button disabled={!can_save_config} onClick={() => void save_config()} type='button'>保存配置</button>
+        <button disabled={!can_test_config} onClick={() => void run_test()} type='button'>测试连接</button>
       </div>
+      {!required_model_fields_ready ? <p className='muted'>填写 Provider、Base URL 和模型名称后可保存配置。</p> : null}
+      {required_model_fields_ready && !has_test_key ? <p className='muted'>填写 API Key，或启用已保存 Key 后再测试连接。</p> : null}
 
       {config ? (
         <div className='detail-block'>

@@ -1,8 +1,12 @@
 """Import job API schemas."""
 
-from typing import Any
+from typing import Annotated, Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, StringConstraints
+
+ScanPath = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=2048)]
+ScanPattern = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=512)]
+ScanStrategy = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=64)]
 
 
 class PasteImportRequest(BaseModel):
@@ -13,9 +17,9 @@ class PasteImportRequest(BaseModel):
 
 
 class ScanImportRequest(BaseModel):
-    root_path: str
-    glob_pattern: str = "**/*"
-    strategy: str = "auto"
+    root_path: ScanPath
+    glob_pattern: ScanPattern = "**/*"
+    strategy: ScanStrategy = "auto"
 
 
 class StructuredImportRequest(BaseModel):

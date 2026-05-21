@@ -156,9 +156,12 @@ input[type='range'] {
   grid-template-columns: 64px minmax(0, 1fr);
 }
 
-.workbench-shell.is-page-workspace,
+.workbench-shell.is-page-workspace {
+  grid-template-columns: 340px minmax(0, 1fr);
+}
+
 .workbench-shell.is-page-workspace.is-left-collapsed {
-  grid-template-columns: 72px minmax(0, 1fr);
+  grid-template-columns: 64px minmax(0, 1fr);
 }
 
 .left-rail,
@@ -196,6 +199,12 @@ input[type='range'] {
   gap: 10px;
   justify-items: center;
   min-width: 0;
+}
+
+.collapsed-workspace-switcher {
+  display: grid;
+  gap: 10px;
+  width: 100%;
 }
 
 .rail-icon-button {
@@ -443,19 +452,6 @@ input[type='range'] {
   visibility: hidden;
 }
 
-.workbench-shell.is-page-workspace .left-rail {
-  padding: 10px;
-}
-
-.workbench-shell.is-page-workspace .left-rail .collapsed-rail-stack {
-  display: grid;
-}
-
-.workbench-shell.is-page-workspace .left-rail .rail-toggle-expanded,
-.workbench-shell.is-page-workspace .left-rail .rail-content {
-  display: none;
-}
-
 .workbench-shell.is-left-collapsed .left-rail .rail-content {
   transform: translateX(-14px);
 }
@@ -479,16 +475,25 @@ input[type='range'] {
   border-radius: 20px;
 }
 
+.workspace-stage.graph-stage {
+  grid-template-rows: auto auto minmax(0, 1fr);
+}
+
 .workspace-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-wrap: wrap;
   gap: 16px;
   padding: 18px 20px;
   border-bottom: 1px solid var(--line);
 }
 
-.workspace-header span {
+.workspace-header-copy {
+  min-width: 220px;
+}
+
+.workspace-header-copy > span {
   color: var(--accent);
   font-size: 0.72rem;
   font-weight: 700;
@@ -496,13 +501,13 @@ input[type='range'] {
   text-transform: uppercase;
 }
 
-.workspace-header h1 {
+.workspace-header-copy h1 {
   margin: 4px 0 6px;
   font-size: 1.42rem;
   letter-spacing: 0;
 }
 
-.workspace-header p {
+.workspace-header-copy p {
   margin: 0;
   color: var(--muted);
   font-size: 0.88rem;
@@ -511,8 +516,19 @@ input[type='range'] {
 .workspace-header-actions {
   display: flex;
   align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
   gap: 8px;
-  flex: 0 0 auto;
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
+.graph-workspace-header {
+  align-items: flex-start;
+}
+
+.graph-workspace-header .workspace-header-actions {
+  flex: 1 1 520px;
 }
 
 .workspace-action-button {

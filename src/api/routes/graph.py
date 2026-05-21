@@ -113,7 +113,17 @@ def update_graph_node(
 
 
 @graph_router.delete("/nodes/{node_id}", response_model=StatusResponse)
-def delete_graph_node(node_id: str, graph_service=Depends(get_graph_service)) -> StatusResponse:
+def delete_graph_node(
+    node_id: str,
+    confirm: bool = Query(default=False),
+    graph_service=Depends(get_graph_service),
+) -> StatusResponse:
+    if node_id.startswith("source:") and not confirm:
+        raise api_error(
+            status_code=400,
+            code="delete_confirmation_required",
+            message="Deleting a source node requires confirm=true.",
+        )
     try:
         graph_service.delete_node(node_id)
     except KeyError as exc:

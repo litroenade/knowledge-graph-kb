@@ -14,16 +14,19 @@ interface PrimaryWorkspaceProps {
 }
 
 export function PrimaryWorkspace(props: PrimaryWorkspaceProps) {
-  if (props.workspace_view === 'import') {
-    return <ImportWorkspace on_import_finished={props.on_import_finished} ready={props.ready} />;
-  }
-
   return (
-    <ChatWorkspace
-      on_focus_node={props.on_focus_node}
-      on_saved={props.on_import_finished}
-      ready={props.ready}
-      scope={props.scope}
-    />
+    <>
+      <div style={{ display: props.workspace_view === 'import' ? 'contents' : 'none' }}>
+        <ImportWorkspace on_import_finished={props.on_import_finished} ready={props.ready} />
+      </div>
+      <div style={{ display: props.workspace_view === 'chat' ? 'contents' : 'none' }}>
+        <ChatWorkspace
+          on_focus_node={props.on_focus_node}
+          on_saved={props.on_import_finished}
+          ready={props.ready}
+          scope={props.scope}
+        />
+      </div>
+    </>
   );
 }

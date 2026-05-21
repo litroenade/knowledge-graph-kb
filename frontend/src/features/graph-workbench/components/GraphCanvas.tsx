@@ -89,11 +89,13 @@ export function GraphCanvas(props: GraphCanvasProps) {
     runtime_ref.current = runtime;
     void runtime.init()
       .then(() => {
-        if (!disposed) {
-          set_runtime_ready(true);
-          runtime.fit_all();
-          set_error(null);
+        if (disposed) {
+          runtime.destroy();
+          return;
         }
+        set_runtime_ready(true);
+        runtime.fit_all();
+        set_error(null);
       })
       .catch((current_error) => {
         if (!disposed) {

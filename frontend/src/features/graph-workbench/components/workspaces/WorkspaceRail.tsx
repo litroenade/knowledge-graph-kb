@@ -2,13 +2,9 @@ import type { ReactNode } from 'react';
 
 import type { SourceItem } from '../../../../shared/types/kb';
 import type { RenderNode } from '../../model/graphModel';
-import {
-  WORKSPACE_ICON_CLASS,
-  WORKSPACE_LABELS,
-  WORKSPACE_TOOLTIPS,
-  type WorkspaceView,
-} from '../../model/workspaceLayout';
+import type { WorkspaceView } from '../../model/workspaceLayout';
 import { hover_description } from '../hoverDescription';
+import { WorkspaceSwitcher } from './WorkspaceSwitcher';
 
 interface WorkspaceRailProps {
   graph_settings_panel: ReactNode;
@@ -31,7 +27,7 @@ interface WorkspaceRailProps {
 }
 
 export function WorkspaceRail(props: WorkspaceRailProps) {
-  const workspace_items = Object.keys(WORKSPACE_LABELS) as WorkspaceView[];
+  const has_search_query = props.search.trim().length > 0;
 
   return (
     <aside aria-label='图谱导航与控制' className='left-rail'>
@@ -45,19 +41,7 @@ export function WorkspaceRail(props: WorkspaceRailProps) {
         >
           <span aria-hidden='true' className='rail-symbol rail-symbol-menu' />
         </button>
-        {workspace_items.map((item) => (
-          <button
-            aria-label={`切换到${WORKSPACE_LABELS[item]}`}
-            aria-pressed={props.workspace_view === item}
-            className={props.workspace_view === item ? 'rail-icon-button is-active' : 'rail-icon-button'}
-            key={item}
-            {...hover_description(WORKSPACE_TOOLTIPS[item])}
-            onClick={() => props.on_select_workspace(item)}
-            type='button'
-          >
-            <span aria-hidden='true' className={WORKSPACE_ICON_CLASS[item]} />
-          </button>
-        ))}
+        <WorkspaceSwitcher active_workspace={props.workspace_view} on_select_workspace={props.on_select_workspace} variant='icon' />
       </div>
       <button
         aria-expanded={!props.left_collapsed}
@@ -78,20 +62,7 @@ export function WorkspaceRail(props: WorkspaceRailProps) {
           <div className='section-heading'>
             <span>工作区</span>
           </div>
-          <div className='workspace-nav-list'>
-            {workspace_items.map((item) => (
-              <button
-                {...hover_description(WORKSPACE_TOOLTIPS[item])}
-                aria-pressed={props.workspace_view === item}
-                key={item}
-                onClick={() => props.on_select_workspace(item)}
-                type='button'
-              >
-                <span aria-hidden='true' className={WORKSPACE_ICON_CLASS[item]} />
-                <strong>{WORKSPACE_LABELS[item]}</strong>
-              </button>
-            ))}
-          </div>
+          <WorkspaceSwitcher active_workspace={props.workspace_view} on_select_workspace={props.on_select_workspace} variant='label' />
         </section>
 
         {props.show_graph_controls ? (
@@ -116,6 +87,9 @@ export function WorkspaceRail(props: WorkspaceRailProps) {
                   <span>{node.kind_label ?? node.type} · {node.degree} 条连接</span>
                 </button>
               ))}
+              {!props.search_matches.length ? (
+                <p className='muted'>{has_search_query ? '没有匹配节点。' : '当前范围暂无节点。'}</p>
+              ) : null}
             </div>
           </section>
         ) : null}
@@ -124,7 +98,12 @@ export function WorkspaceRail(props: WorkspaceRailProps) {
           <section className='control-section'>
             <div className='section-heading'>
               <span>来源范围</span>
-              <button {...hover_description('清空来源过滤，恢复全部来源范围')} onClick={props.on_clear_sources} type='button'>
+              <button
+                {...hover_description('清空来源过滤，恢复全部来源范围')}
+                disabled={!props.selected_source_ids.length}
+                onClick={props.on_clear_sources}
+                type='button'
+              >
                 全部
               </button>
             </div>
@@ -139,6 +118,7 @@ export function WorkspaceRail(props: WorkspaceRailProps) {
                   <span>{source.name}</span>
                 </label>
               ))}
+              {!props.sources.length ? <p className='muted'>暂无来源。先到导入中心添加内容。</p> : null}
             </div>
           </section>
         ) : null}

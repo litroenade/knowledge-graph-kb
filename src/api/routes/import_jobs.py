@@ -1,5 +1,5 @@
 """Import job routes."""
-from fastapi import APIRouter, Depends, File, UploadFile
+from fastapi import APIRouter, Depends, File, Query, UploadFile
 
 from src.api.dependencies import get_import_service
 from src.api.errors import api_error
@@ -16,7 +16,7 @@ import_jobs_router = APIRouter(prefix="/api/kb/imports", tags=["kb-imports"])
 
 
 @import_jobs_router.get("/jobs", response_model=list[ImportJobItem])
-def list_import_jobs(limit: int = 50, import_service=Depends(get_import_service)) -> list[ImportJobItem]:
+def list_import_jobs(limit: int = Query(default=50, ge=1, le=200), import_service=Depends(get_import_service)) -> list[ImportJobItem]:
     return [ImportJobItem(**job) for job in import_service.list_jobs(limit=limit)]
 
 

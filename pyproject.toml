@@ -28,7 +28,7 @@ dependencies = [
 ]
 
 [project.scripts]
-knowledge-graph-kb = "main:cli"
+knowledge-graph-kb = "src.cli:cli"
 
 [dependency-groups]
 dev = [
