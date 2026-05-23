@@ -1,0 +1,122 @@
+/* Graph controls, canvas overlays, and source/detail primitives. */
+.segmented,
+.toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.segmented button,
+.toolbar button {
+  min-height: 36px;
+  padding: 7px 11px;
+}
+
+.status-strip {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 0.84rem;
+}
+
+.status-strip span {
+  padding: 5px 8px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.52);
+}
+
+.status-strip .is-danger {
+  color: var(--danger);
+  border-color: rgba(248, 113, 113, 0.42);
+}
+
+.status-strip .is-note {
+  color: var(--accent);
+  border-color: rgba(56, 189, 248, 0.35);
+}
+
+.is-danger {
+  color: var(--danger);
+}
+
+.graph-canvas-shell {
+  position: relative;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.graph-canvas-surface {
+  position: absolute;
+  inset: 0;
+}
+
+.graph-tooltip,
+.graph-overlay-message {
+  position: absolute;
+  z-index: 5;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: rgba(15, 23, 42, 0.92);
+  box-shadow: 0 18px 60px rgba(2, 6, 23, 0.4);
+}
+
+.graph-tooltip {
+  display: grid;
+  gap: 4px;
+  max-width: 280px;
+  padding: 10px 12px;
+  pointer-events: none;
+}
+
+.graph-tooltip span {
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.graph-overlay-message {
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  padding: 12px 16px;
+  color: var(--muted);
+}
+
+.graph-overlay-message.is-error {
+  color: var(--danger);
+}
+
+.detail-block,
+.preview-list {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--panel-soft);
+}
+
+.detail-block > div {
+  display: grid;
+  grid-template-columns: 76px minmax(0, 1fr);
+  gap: 8px;
+  color: var(--muted);
+  font-size: 0.84rem;
+}
+
+.detail-block b {
+  overflow-wrap: anywhere;
+  color: var(--text);
+  font-weight: 500;
+}
+
+.preview-list p {
+  margin: 0;
+  line-height: 1.55;
+}
+

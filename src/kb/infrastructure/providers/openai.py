@@ -1,6 +1,7 @@
 ﻿"""OpenAI 兼容模型网关。"""
 
 from collections.abc import Callable
+from hashlib import sha256
 import json
 import re
 from time import perf_counter
@@ -63,8 +64,7 @@ class OpenAiGateway:
     Attributes:
         settings (Settings): 全局配置对象。
         runtime_config_provider (Callable[[], RuntimeModelConfiguration]): 运行时模型配置提供函数。
-        _client (OpenAI | None): 缓存的 OpenAI 客户端。
-        _client_signature (tuple[str, str, str] | None): 当前客户端签名，用于判断是否需要重建客户端。
+        _clients (dict[tuple[str, str, str], OpenAI]): 按端点与密钥缓存的 OpenAI 客户端。
     """
 
     def __init__(
@@ -82,8 +82,7 @@ class OpenAiGateway:
 
         self.settings = settings
         self.runtime_config_provider = runtime_config_provider
-        self._client: OpenAI | None = None
-        self._client_signature: tuple[str, str, str] | None = None
+        self._clients: dict[tuple[str, str, str], OpenAI] = {}
 
     def generate_embeddings(self, texts: list[str]) -> list[list[float]]:
         """批量生成文本向量。
@@ -104,7 +103,7 @@ class OpenAiGateway:
             "开始请求文本向量：text_count=%s batch_size=%s provider=%s embedding_model=%s",
             len(texts),
             max(1, self.settings.embedding_batch_size),
-            runtime_config.provider,
+            runtime_config.embedding_provider,
             runtime_config.embedding_model,
         )
         logger.debug(
@@ -112,10 +111,16 @@ class OpenAiGateway:
             len(texts),
             total_char_count,
             max_char_count,
-            runtime_config.provider,
+            runtime_config.embedding_provider,
             runtime_config.embedding_model,
         )
-        client = self._client_for(runtime_config)
+        client = self._client_for(
+            provider=runtime_config.embedding_provider,
+            base_url=runtime_config.embedding_base_url,
+            api_key=runtime_config.embedding_api_key,
+            api_key_source=runtime_config.embedding_api_key_source,
+            purpose="Embedding",
+        )
         batch_size = max(1, self.settings.embedding_batch_size)
         embeddings: list[list[float]] = []
         request_start = perf_counter()
@@ -179,7 +184,7 @@ class OpenAiGateway:
             "开始请求实体关系抽取：document_name=%s window_label=%s provider=%s llm_model=%s",
             document_name,
             window_label,
-            runtime_config.provider,
+            runtime_config.llm_provider,
             runtime_config.llm_model,
         )
         logger.debug(
@@ -188,7 +193,7 @@ class OpenAiGateway:
             window_label,
             len(text),
             len(truncated_text),
-            runtime_config.provider,
+            runtime_config.llm_provider,
             runtime_config.llm_model,
         )
         request_start = perf_counter()
@@ -283,7 +288,7 @@ class OpenAiGateway:
             len(query),
             len(context_blocks),
             len(conversation_turns or []),
-            runtime_config.provider,
+            runtime_config.llm_provider,
             runtime_config.llm_model,
         )
         logger.debug(
@@ -293,7 +298,7 @@ class OpenAiGateway:
             context_char_count,
             len(conversation_turns or []),
             history_char_count,
-            runtime_config.provider,
+            runtime_config.llm_provider,
             runtime_config.llm_model,
         )
         request_start = perf_counter()
@@ -321,32 +326,42 @@ class OpenAiGateway:
         """
 
         logger.info(
-            "开始测试模型连通性：provider=%s base_url=%s llm_model=%s embedding_model=%s api_key_source=%s",
-            runtime_config.provider,
-            runtime_config.base_url,
+            "开始测试模型连通性：llm_provider=%s llm_base_url=%s llm_model=%s embedding_provider=%s embedding_base_url=%s embedding_model=%s llm_key_source=%s embedding_key_source=%s",
+            runtime_config.llm_provider,
+            runtime_config.llm_base_url,
             runtime_config.llm_model,
+            runtime_config.embedding_provider,
+            runtime_config.embedding_base_url,
             runtime_config.embedding_model,
-            runtime_config.api_key_source,
+            runtime_config.llm_api_key_source,
+            runtime_config.embedding_api_key_source,
         )
-        client = self._client_for(runtime_config)
         embedding_ok = False
         llm_ok = False
         try:
             embedding_start = perf_counter()
             logger.debug(
                 "模型连通性嵌入测试开始：provider=%s embedding_model=%s base_url=%s",
-                runtime_config.provider,
+                runtime_config.embedding_provider,
                 runtime_config.embedding_model,
-                runtime_config.base_url,
+                runtime_config.embedding_base_url,
             )
-            response = client.embeddings.create(
+            embedding_client = self._client_for(
+                provider=runtime_config.embedding_provider,
+                base_url=runtime_config.embedding_base_url,
+                api_key=runtime_config.embedding_api_key,
+                api_key_source=runtime_config.embedding_api_key_source,
+                purpose="Embedding",
+                cache=False,
+            )
+            response = embedding_client.embeddings.create(
                 model=runtime_config.embedding_model,
                 input=[CONNECTION_TEST_INPUT],
             )
             embedding_ok = bool(response.data)
             logger.debug(
                 "模型连通性嵌入测试完成：provider=%s embedding_ok=%s elapsed_ms=%s",
-                runtime_config.provider,
+                runtime_config.embedding_provider,
                 embedding_ok,
                 round((perf_counter() - embedding_start) * 1000.0, 2),
             )
@@ -356,38 +371,46 @@ class OpenAiGateway:
             llm_start = perf_counter()
             logger.debug(
                 "模型连通性通用模型测试开始：provider=%s llm_model=%s base_url=%s",
-                runtime_config.provider,
+                runtime_config.llm_provider,
                 runtime_config.llm_model,
-                runtime_config.base_url,
+                runtime_config.llm_base_url,
             )
             llm_response = self._chat_completion(
                 runtime_config,
                 system_prompt="Reply with the single word ok.",
                 user_prompt="Connection test.",
                 max_tokens=8,
+                cache_client=False,
             )
             llm_ok = bool(llm_response.strip())
             logger.debug(
                 "模型连通性通用模型测试完成：provider=%s llm_ok=%s elapsed_ms=%s",
-                runtime_config.provider,
+                runtime_config.llm_provider,
                 llm_ok,
                 round((perf_counter() - llm_start) * 1000.0, 2),
             )
         except Exception:  # noqa: BLE001
             llm_ok = False
         logger.info(
-            "模型连通性测试完成：provider=%s llm_ok=%s embedding_ok=%s",
-            runtime_config.provider,
+            "模型连通性测试完成：llm_provider=%s embedding_provider=%s llm_ok=%s embedding_ok=%s",
+            runtime_config.llm_provider,
+            runtime_config.embedding_provider,
             llm_ok,
             embedding_ok,
         )
         return llm_ok, embedding_ok
 
-    def _client_for(self, runtime_config: RuntimeModelConfiguration) -> OpenAI:
+    def _client_for(
+        self,
+        *,
+        provider: str,
+        base_url: str,
+        api_key: str,
+        api_key_source: str,
+        purpose: str,
+        cache: bool = True,
+    ) -> OpenAI:
         """获取与当前配置匹配的客户端实例。
-
-        Args:
-            runtime_config: 运行时模型配置。
 
         Returns:
             OpenAI: 可复用的客户端实例。
@@ -396,33 +419,41 @@ class OpenAiGateway:
             OpenAiConfigurationError: 当 API Key 缺失时抛出。
         """
 
-        if not runtime_config.api_key:
-            raise OpenAiConfigurationError("当前没有可用的 API Key，请先在模型配置中保存可用密钥。")
-        signature = (
-            runtime_config.provider,
-            runtime_config.base_url,
-            runtime_config.api_key,
-        )
-        if self._client is None or self._client_signature != signature:
+        if not api_key:
+            raise OpenAiConfigurationError(f"当前没有可用的 {purpose} API Key，请先在模型配置中保存可用密钥。")
+        signature = (provider, base_url, sha256(api_key.encode("utf-8")).hexdigest())
+        if not cache:
             logger.info(
-                "创建模型客户端：provider=%s base_url=%s api_key_source=%s",
-                runtime_config.provider,
-                runtime_config.base_url,
-                runtime_config.api_key_source,
+                "创建临时模型客户端：purpose=%s provider=%s base_url=%s api_key_source=%s",
+                purpose,
+                provider,
+                base_url,
+                api_key_source,
             )
-            if runtime_config.base_url:
-                self._client = OpenAI(api_key=runtime_config.api_key, base_url=runtime_config.base_url)
+            return OpenAI(api_key=api_key, base_url=base_url) if base_url else OpenAI(api_key=api_key)
+        client = self._clients.get(signature)
+        if client is None:
+            logger.info(
+                "创建模型客户端：purpose=%s provider=%s base_url=%s api_key_source=%s",
+                purpose,
+                provider,
+                base_url,
+                api_key_source,
+            )
+            if base_url:
+                client = OpenAI(api_key=api_key, base_url=base_url)
             else:
-                self._client = OpenAI(api_key=runtime_config.api_key)
-            self._client_signature = signature
+                client = OpenAI(api_key=api_key)
+            self._clients[signature] = client
         else:
             logger.debug(
-                "复用模型客户端：provider=%s base_url=%s api_key_source=%s",
-                runtime_config.provider,
-                runtime_config.base_url,
-                runtime_config.api_key_source,
+                "复用模型客户端：purpose=%s provider=%s base_url=%s api_key_source=%s",
+                purpose,
+                provider,
+                base_url,
+                api_key_source,
             )
-        return self._client
+        return client
 
     def _chat_completion(
         self,
@@ -431,6 +462,7 @@ class OpenAiGateway:
         system_prompt: str,
         user_prompt: str,
         max_tokens: int | None = None,
+        cache_client: bool = True,
     ) -> str:
         """执行一次聊天补全请求。
 
@@ -455,23 +487,31 @@ class OpenAiGateway:
             request_kwargs["max_tokens"] = max_tokens
         logger.debug(
             "聊天补全请求开始：provider=%s llm_model=%s message_count=%s system_prompt_length=%s user_prompt_length=%s max_tokens=%s",
-            runtime_config.provider,
+            runtime_config.llm_provider,
             runtime_config.llm_model,
             len(request_kwargs["messages"]),
             len(system_prompt),
             len(user_prompt),
             max_tokens,
         )
+        client = self._client_for(
+            provider=runtime_config.llm_provider,
+            base_url=runtime_config.llm_base_url,
+            api_key=runtime_config.llm_api_key,
+            api_key_source=runtime_config.llm_api_key_source,
+            purpose="LLM",
+            cache=cache_client,
+        )
         request_start = perf_counter()
         try:
-            response = self._client_for(runtime_config).chat.completions.create(**request_kwargs)
+            response = client.chat.completions.create(**request_kwargs)
         except Exception as exc:  # noqa: BLE001
             raise self._translate_client_error(exc) from exc
         message_content: Any = response.choices[0].message.content if response.choices else ""
         response_text = self._message_content_to_text(message_content)
         logger.debug(
             "聊天补全请求完成：provider=%s llm_model=%s choice_count=%s output_length=%s elapsed_ms=%s",
-            runtime_config.provider,
+            runtime_config.llm_provider,
             runtime_config.llm_model,
             len(response.choices or []),
             len(response_text),

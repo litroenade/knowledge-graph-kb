@@ -193,21 +193,28 @@ export interface SystemReady {
 }
 
 export interface ModelConfigResponse {
-  provider: string;
-  base_url: string;
+  llm_provider: string;
+  llm_base_url: string;
   llm_model: string;
+  llm_has_api_key: boolean;
+  llm_api_key_preview: string | null;
+  llm_api_key_source: string;
+  embedding_provider: string;
+  embedding_base_url: string;
   embedding_model: string;
-  has_api_key: boolean;
-  api_key_preview: string | null;
-  api_key_source: string;
+  embedding_has_api_key: boolean;
+  embedding_api_key_preview: string | null;
+  embedding_api_key_source: string;
   reindex_required: boolean;
   notice: string | null;
 }
 
 export interface ModelConfigTestResponse {
-  provider: string;
-  base_url: string;
+  llm_provider: string;
+  llm_base_url: string;
   llm_model: string;
+  embedding_provider: string;
+  embedding_base_url: string;
   embedding_model: string;
   llm_ok: boolean;
   embedding_ok: boolean;

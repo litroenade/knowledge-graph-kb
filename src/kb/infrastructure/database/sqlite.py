@@ -9,7 +9,7 @@ from threading import RLock
 from typing import Any
 
 SQLITE_BUSY_TIMEOUT_MS = 30_000
-CURRENT_SCHEMA_VERSION = 3
+CURRENT_SCHEMA_VERSION = 4
 
 
 class SQLiteGateway:
@@ -41,6 +41,12 @@ class SQLiteGateway:
                     llm_model TEXT NOT NULL,
                     embedding_model TEXT NOT NULL,
                     api_key TEXT,
+                    llm_provider TEXT NOT NULL DEFAULT '',
+                    llm_base_url TEXT NOT NULL DEFAULT '',
+                    llm_api_key TEXT,
+                    embedding_provider TEXT NOT NULL DEFAULT '',
+                    embedding_base_url TEXT NOT NULL DEFAULT '',
+                    embedding_api_key TEXT,
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL
                 );
@@ -407,6 +413,10 @@ class SQLiteGateway:
         if current_version < 3:
             self._migrate_to_v3(connection)
             self._write_schema_version(connection, 3)
+            current_version = 3
+        if current_version < 4:
+            self._migrate_to_v4(connection)
+            self._write_schema_version(connection, 4)
 
     def _ensure_runtime_indexes(self, connection: sqlite3.Connection) -> None:
         connection.executescript(
@@ -612,6 +622,26 @@ class SQLiteGateway:
         finally:
             connection.commit()
             connection.execute("PRAGMA foreign_keys=ON")
+
+    def _migrate_to_v4(self, connection: sqlite3.Connection) -> None:
+        self._ensure_column(connection, "model_config", "llm_provider", "TEXT NOT NULL DEFAULT ''")
+        self._ensure_column(connection, "model_config", "llm_base_url", "TEXT NOT NULL DEFAULT ''")
+        self._ensure_column(connection, "model_config", "llm_api_key", "TEXT")
+        self._ensure_column(connection, "model_config", "embedding_provider", "TEXT NOT NULL DEFAULT ''")
+        self._ensure_column(connection, "model_config", "embedding_base_url", "TEXT NOT NULL DEFAULT ''")
+        self._ensure_column(connection, "model_config", "embedding_api_key", "TEXT")
+        connection.execute(
+            """
+            UPDATE model_config
+            SET
+                llm_provider = CASE WHEN llm_provider = '' THEN provider ELSE llm_provider END,
+                llm_base_url = CASE WHEN llm_base_url = '' THEN base_url ELSE llm_base_url END,
+                llm_api_key = COALESCE(llm_api_key, api_key),
+                embedding_provider = CASE WHEN embedding_provider = '' THEN provider ELSE embedding_provider END,
+                embedding_base_url = CASE WHEN embedding_base_url = '' THEN base_url ELSE embedding_base_url END,
+                embedding_api_key = COALESCE(embedding_api_key, api_key)
+            """
+        )
 
     def _ensure_column(self, connection: sqlite3.Connection, table_name: str, column_name: str, column_sql: str) -> None:
         if self._column_exists(connection, table_name, column_name):

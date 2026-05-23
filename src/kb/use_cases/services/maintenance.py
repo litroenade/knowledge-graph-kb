@@ -247,18 +247,28 @@ class MaintenanceService:
     def _model_config_check(self) -> MaintenanceCheck:
         try:
             runtime_config = self.model_config_service.resolve_runtime_configuration()
-            has_api_key = bool(runtime_config.api_key)
+            has_llm_api_key = bool(runtime_config.llm_api_key)
+            has_embedding_api_key = bool(runtime_config.embedding_api_key)
+            has_api_key = has_llm_api_key and has_embedding_api_key
             return MaintenanceCheck(
                 name="model_config",
                 ok=has_api_key,
-                message="Model configuration is available." if has_api_key else "Model configuration is missing an API key.",
+                message=(
+                    "Model configuration is available."
+                    if has_api_key
+                    else "Model configuration is missing an LLM or embedding API key."
+                ),
                 details={
-                    "provider": runtime_config.provider,
-                    "base_url": runtime_config.base_url,
+                    "llm_provider": runtime_config.llm_provider,
+                    "llm_base_url": runtime_config.llm_base_url,
                     "llm_model": runtime_config.llm_model,
+                    "embedding_provider": runtime_config.embedding_provider,
+                    "embedding_base_url": runtime_config.embedding_base_url,
                     "embedding_model": runtime_config.embedding_model,
-                    "api_key_source": runtime_config.api_key_source,
-                    "has_api_key": has_api_key,
+                    "llm_api_key_source": runtime_config.llm_api_key_source,
+                    "embedding_api_key_source": runtime_config.embedding_api_key_source,
+                    "has_llm_api_key": has_llm_api_key,
+                    "has_embedding_api_key": has_embedding_api_key,
                 },
             )
         except Exception as exc:  # noqa: BLE001

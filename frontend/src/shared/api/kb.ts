@@ -249,23 +249,31 @@ export function fetch_model_config(): Promise<ModelConfigResponse> {
 }
 
 export function update_model_config(payload: {
-  provider: string;
-  base_url: string;
+  llm_provider: string;
+  llm_base_url: string;
   llm_model: string;
+  llm_api_key?: string | null;
+  clear_llm_api_key: boolean;
+  embedding_provider: string;
+  embedding_base_url: string;
   embedding_model: string;
-  api_key?: string | null;
-  clear_api_key: boolean;
+  embedding_api_key?: string | null;
+  clear_embedding_api_key: boolean;
 }): Promise<ModelConfigResponse> {
   return json_request<ModelConfigResponse>('/api/kb/config/model', 'PUT', payload);
 }
 
 export function test_model_config(payload: {
-  provider: string;
-  base_url: string;
+  llm_provider: string;
+  llm_base_url: string;
   llm_model: string;
+  llm_api_key?: string | null;
+  use_saved_llm_api_key: boolean;
+  embedding_provider: string;
+  embedding_base_url: string;
   embedding_model: string;
-  api_key?: string | null;
-  use_saved_api_key: boolean;
+  embedding_api_key?: string | null;
+  use_saved_embedding_api_key: boolean;
 }): Promise<ModelConfigTestResponse> {
   return json_request<ModelConfigTestResponse>('/api/kb/config/model/test', 'POST', payload);
 }

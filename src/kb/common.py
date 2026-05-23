@@ -46,12 +46,16 @@ def build_mention_edge_id(paragraph_id: str, entity_id: str) -> str:
 class RuntimeModelConfiguration:
     """用于模型网关调用的运行时配置。"""
 
-    provider: str
-    base_url: str
-    api_key: str
+    llm_provider: str
+    llm_base_url: str
+    llm_api_key: str
     llm_model: str
+    llm_api_key_source: str
+    embedding_provider: str
+    embedding_base_url: str
+    embedding_api_key: str
     embedding_model: str
-    api_key_source: str
+    embedding_api_key_source: str
 
 
 __all__ = [

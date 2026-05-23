@@ -1,0 +1,283 @@
+/* Workbench grid, side rails, and icon glyphs. */
+.workbench-shell {
+  display: grid;
+  grid-template-columns: 340px minmax(0, 1fr) minmax(390px, 440px);
+  gap: 12px;
+  height: 100vh;
+  padding: 12px;
+  transition: grid-template-columns 0.2s ease;
+}
+
+.workbench-shell.is-left-collapsed {
+  grid-template-columns: 64px minmax(0, 1fr) minmax(390px, 440px);
+}
+
+.workbench-shell.is-right-collapsed {
+  grid-template-columns: 340px minmax(0, 1fr) 64px;
+}
+
+.workbench-shell.is-left-collapsed.is-right-collapsed {
+  grid-template-columns: 64px minmax(0, 1fr) 64px;
+}
+
+.workbench-shell.is-main-workspace {
+  grid-template-columns: 340px minmax(0, 1fr);
+}
+
+.workbench-shell.is-main-workspace.is-left-collapsed {
+  grid-template-columns: 64px minmax(0, 1fr);
+}
+
+.workbench-shell.is-page-workspace {
+  grid-template-columns: 340px minmax(0, 1fr);
+}
+
+.workbench-shell.is-page-workspace.is-left-collapsed {
+  grid-template-columns: 64px minmax(0, 1fr);
+}
+
+.left-rail,
+.right-panel,
+.graph-stage,
+.workspace-stage {
+  min-height: 0;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  backdrop-filter: blur(18px);
+  box-shadow: 0 24px 80px rgba(2, 6, 23, 0.34);
+}
+
+.left-rail,
+.right-panel {
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  align-content: stretch;
+  gap: 12px;
+  overflow: hidden;
+  padding: 12px;
+  border-radius: 18px;
+}
+
+.rail-toggle {
+  min-height: 34px;
+  padding: 6px 8px;
+  color: var(--muted);
+  transition: background 0.16s ease, border-color 0.16s ease, color 0.16s ease;
+}
+
+.collapsed-rail-stack {
+  display: none;
+  align-content: start;
+  gap: 10px;
+  justify-items: center;
+  min-width: 0;
+}
+
+.collapsed-workspace-switcher {
+  display: grid;
+  gap: 10px;
+  width: 100%;
+}
+
+.rail-icon-button {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  min-height: 40px;
+  padding: 0;
+  border-radius: 12px;
+  color: var(--muted);
+  font-size: 0.9rem;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.rail-symbol {
+  position: relative;
+  display: block;
+  width: 18px;
+  height: 18px;
+  color: currentColor;
+}
+
+.rail-symbol::before,
+.rail-symbol::after {
+  position: absolute;
+  content: "";
+  box-sizing: border-box;
+}
+
+.rail-symbol-menu::before {
+  inset: 2px 1px;
+  border-top: 2px solid currentColor;
+  border-bottom: 2px solid currentColor;
+}
+
+.rail-symbol-menu::after {
+  left: 1px;
+  right: 1px;
+  top: 8px;
+  border-top: 2px solid currentColor;
+}
+
+.rail-symbol-graph::before {
+  left: 2px;
+  top: 2px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: currentColor;
+  box-shadow: 9px 1px 0 currentColor, 5px 11px 0 currentColor;
+}
+
+.rail-symbol-graph::after {
+  left: 4px;
+  top: 5px;
+  width: 11px;
+  height: 10px;
+  border-left: 2px solid currentColor;
+  border-bottom: 2px solid currentColor;
+  transform: skewX(-26deg);
+}
+
+.rail-symbol-source::before {
+  left: 1px;
+  top: 4px;
+  width: 16px;
+  height: 11px;
+  border: 2px solid currentColor;
+  border-radius: 3px;
+}
+
+.rail-symbol-source::after {
+  left: 3px;
+  top: 2px;
+  width: 7px;
+  height: 5px;
+  border-left: 2px solid currentColor;
+  border-top: 2px solid currentColor;
+  border-radius: 2px 2px 0 0;
+}
+
+.rail-symbol-inspector::before {
+  left: 1px;
+  top: 4px;
+  width: 16px;
+  height: 10px;
+  border: 2px solid currentColor;
+  border-radius: 50%;
+}
+
+.rail-symbol-inspector::after {
+  left: 7px;
+  top: 7px;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.rail-symbol-edit::before {
+  left: 3px;
+  top: 10px;
+  width: 12px;
+  border-top: 2px solid currentColor;
+  transform: rotate(-42deg);
+}
+
+.rail-symbol-edit::after {
+  left: 2px;
+  bottom: 2px;
+  width: 12px;
+  height: 5px;
+  border-left: 2px solid currentColor;
+  border-bottom: 2px solid currentColor;
+}
+
+.rail-symbol-import::before {
+  left: 8px;
+  top: 2px;
+  height: 11px;
+  border-left: 2px solid currentColor;
+}
+
+.rail-symbol-import::after {
+  left: 4px;
+  top: 8px;
+  width: 10px;
+  height: 8px;
+  border-left: 2px solid currentColor;
+  border-bottom: 2px solid currentColor;
+  transform: rotate(-45deg);
+}
+
+.rail-symbol-chat::before {
+  left: 1px;
+  top: 3px;
+  width: 16px;
+  height: 11px;
+  border: 2px solid currentColor;
+  border-radius: 7px;
+}
+
+.rail-symbol-chat::after {
+  left: 5px;
+  bottom: 1px;
+  width: 6px;
+  height: 6px;
+  border-left: 2px solid currentColor;
+  border-bottom: 2px solid currentColor;
+  transform: rotate(-25deg);
+}
+
+.rail-icon-button:hover,
+.rail-icon-button:focus-visible {
+  border-color: var(--line-strong);
+  background: rgba(14, 165, 233, 0.12);
+  color: var(--accent);
+}
+
+.rail-content {
+  display: grid;
+  align-content: start;
+  gap: 14px;
+  min-height: 0;
+  overflow: auto;
+  padding-right: 2px;
+  opacity: 1;
+  transform: translateX(0);
+  transition: opacity 0.16s ease, transform 0.16s ease, visibility 0.16s ease;
+  visibility: visible;
+}
+
+.workbench-shell.is-left-collapsed .left-rail,
+.workbench-shell.is-right-collapsed .right-panel {
+  padding: 8px;
+}
+
+.workbench-shell.is-left-collapsed .left-rail .collapsed-rail-stack,
+.workbench-shell.is-right-collapsed .right-panel .collapsed-rail-stack {
+  display: grid;
+}
+
+.workbench-shell.is-left-collapsed .left-rail .rail-toggle-expanded,
+.workbench-shell.is-right-collapsed .right-panel .rail-toggle-expanded {
+  display: none;
+}
+
+.workbench-shell.is-left-collapsed .left-rail .rail-content,
+.workbench-shell.is-right-collapsed .right-panel .rail-content {
+  display: none;
+  opacity: 0;
+  pointer-events: none;
+  visibility: hidden;
+}
+
+.workbench-shell.is-left-collapsed .left-rail .rail-content {
+  transform: translateX(-14px);
+}
+
+.workbench-shell.is-right-collapsed .right-panel .rail-content {
+  transform: translateX(14px);
+}
+

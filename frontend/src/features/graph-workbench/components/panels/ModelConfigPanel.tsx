@@ -16,13 +16,18 @@ interface ModelConfigPanelProps {
 
 export function ModelConfigPanel(props: ModelConfigPanelProps) {
   const [config, set_config] = useState<ModelConfigResponse | null>(null);
-  const [provider, set_provider] = useState('');
-  const [base_url, set_base_url] = useState('');
+  const [llm_provider, set_llm_provider] = useState('');
+  const [llm_base_url, set_llm_base_url] = useState('');
   const [llm_model, set_llm_model] = useState('');
+  const [llm_api_key, set_llm_api_key] = useState('');
+  const [clear_llm_api_key, set_clear_llm_api_key] = useState(false);
+  const [use_saved_llm_api_key, set_use_saved_llm_api_key] = useState(true);
+  const [embedding_provider, set_embedding_provider] = useState('');
+  const [embedding_base_url, set_embedding_base_url] = useState('');
   const [embedding_model, set_embedding_model] = useState('');
-  const [api_key, set_api_key] = useState('');
-  const [clear_api_key, set_clear_api_key] = useState(false);
-  const [use_saved_api_key, set_use_saved_api_key] = useState(true);
+  const [embedding_api_key, set_embedding_api_key] = useState('');
+  const [clear_embedding_api_key, set_clear_embedding_api_key] = useState(false);
+  const [use_saved_embedding_api_key, set_use_saved_embedding_api_key] = useState(true);
   const [test_result, set_test_result] = useState<ModelConfigTestResponse | null>(null);
   const [busy, set_busy] = useState(false);
   const [message, set_message] = useState<string | null>(null);
@@ -34,12 +39,18 @@ export function ModelConfigPanel(props: ModelConfigPanelProps) {
   const load_config = useCallback(async () => {
     const next_config = await fetch_model_config();
     set_config(next_config);
-    set_provider(next_config.provider);
-    set_base_url(next_config.base_url);
+    set_llm_provider(next_config.llm_provider);
+    set_llm_base_url(next_config.llm_base_url);
     set_llm_model(next_config.llm_model);
+    set_llm_api_key('');
+    set_clear_llm_api_key(false);
+    set_use_saved_llm_api_key(true);
+    set_embedding_provider(next_config.embedding_provider);
+    set_embedding_base_url(next_config.embedding_base_url);
     set_embedding_model(next_config.embedding_model);
-    set_api_key('');
-    set_clear_api_key(false);
+    set_embedding_api_key('');
+    set_clear_embedding_api_key(false);
+    set_use_saved_embedding_api_key(true);
   }, []);
 
   useEffect(() => {
@@ -50,38 +61,82 @@ export function ModelConfigPanel(props: ModelConfigPanelProps) {
     () => props.ready?.checks.find((check) => check.name === 'vector_index') ?? null,
     [props.ready],
   );
-  const required_model_fields_ready =
-    provider.trim().length > 0 &&
-    base_url.trim().length > 0 &&
-    llm_model.trim().length > 0 &&
-    (!presentation.embedding_editable || embedding_model.trim().length > 0);
-  const has_test_key = api_key.trim().length > 0 || (use_saved_api_key && Boolean(config?.has_api_key));
+  const llm_fields_ready = llm_provider.trim().length > 0 && llm_model.trim().length > 0;
+  const embedding_fields_ready =
+    embedding_provider.trim().length > 0 &&
+    embedding_model.trim().length > 0;
+  const normalized_llm_provider = llm_provider.trim().toLowerCase();
+  const normalized_embedding_provider = embedding_provider.trim().toLowerCase();
+  const normalized_llm_base_url = llm_base_url.trim().replace(/\/+$/, '');
+  const normalized_embedding_base_url = embedding_base_url.trim().replace(/\/+$/, '');
+  const same_endpoint =
+    normalized_llm_provider === normalized_embedding_provider &&
+    normalized_llm_base_url === normalized_embedding_base_url;
+  const llm_test_key_ready =
+    llm_api_key.trim().length > 0 ||
+    (!clear_llm_api_key && use_saved_llm_api_key && Boolean(config?.llm_has_api_key));
+  const embedding_test_key_ready =
+    embedding_api_key.trim().length > 0 ||
+    (!clear_embedding_api_key && use_saved_embedding_api_key && Boolean(config?.embedding_has_api_key)) ||
+    (same_endpoint && llm_test_key_ready);
+  const required_model_fields_ready = llm_fields_ready && embedding_fields_ready;
   const can_save_config = !busy && required_model_fields_ready;
-  const can_test_config = !busy && required_model_fields_ready && has_test_key;
+  const can_test_config = !busy && required_model_fields_ready && llm_test_key_ready && embedding_test_key_ready;
 
-  function change_clear_api_key(next_value: boolean): void {
-    set_clear_api_key(next_value);
+  function change_clear_llm_api_key(next_value: boolean): void {
+    set_clear_llm_api_key(next_value);
     if (next_value) {
-      set_api_key('');
+      set_llm_api_key('');
+      set_use_saved_llm_api_key(false);
     }
   }
+
+  function change_clear_embedding_api_key(next_value: boolean): void {
+    set_clear_embedding_api_key(next_value);
+    if (next_value) {
+      set_embedding_api_key('');
+      set_use_saved_embedding_api_key(false);
+    }
+  }
+
+  useEffect(() => {
+    set_test_result(null);
+  }, [
+    llm_provider,
+    llm_base_url,
+    llm_model,
+    llm_api_key,
+    clear_llm_api_key,
+    use_saved_llm_api_key,
+    embedding_provider,
+    embedding_base_url,
+    embedding_model,
+    embedding_api_key,
+    clear_embedding_api_key,
+    use_saved_embedding_api_key,
+  ]);
 
   async function save_config(): Promise<void> {
     set_busy(true);
     set_message(null);
     try {
       const next_config = await update_model_config({
-        provider: provider.trim(),
-        base_url: base_url.trim(),
+        llm_provider: llm_provider.trim(),
+        llm_base_url: llm_base_url.trim(),
         llm_model: llm_model.trim(),
+        llm_api_key: llm_api_key.trim() || null,
+        clear_llm_api_key,
+        embedding_provider: embedding_provider.trim(),
+        embedding_base_url: embedding_base_url.trim(),
         embedding_model: embedding_model.trim(),
-        api_key: api_key.trim() || null,
-        clear_api_key,
+        embedding_api_key: embedding_api_key.trim() || null,
+        clear_embedding_api_key,
       });
       set_config(next_config);
-      set_api_key('');
+      set_llm_api_key('');
+      set_embedding_api_key('');
       props.on_saved();
-      set_message(next_config.reindex_required ? '配置已保存，后端提示需要重建向量索引。' : '配置已保存。');
+      set_message(next_config.reindex_required ? '配置已保存，Embedding 已变化，需要重新导入内容。' : '配置已保存。');
     } catch (error) {
       set_message(to_user_error_message(error, 'model-config'));
     } finally {
@@ -94,12 +149,16 @@ export function ModelConfigPanel(props: ModelConfigPanelProps) {
     set_message(null);
     try {
       const result = await test_model_config({
-        provider: provider.trim(),
-        base_url: base_url.trim(),
+        llm_provider: llm_provider.trim(),
+        llm_base_url: llm_base_url.trim(),
         llm_model: llm_model.trim(),
+        llm_api_key: llm_api_key.trim() || null,
+        use_saved_llm_api_key,
+        embedding_provider: embedding_provider.trim(),
+        embedding_base_url: embedding_base_url.trim(),
         embedding_model: embedding_model.trim(),
-        api_key: api_key.trim() || null,
-        use_saved_api_key,
+        embedding_api_key: embedding_api_key.trim() || null,
+        use_saved_embedding_api_key,
       });
       set_test_result(result);
       set_message(result.message);
@@ -123,58 +182,132 @@ export function ModelConfigPanel(props: ModelConfigPanelProps) {
       </div>
       <p className='muted'>{props.description ? props.description : presentation.description}</p>
 
-      <div className='form-grid'>
-        <label className='field'>
-          <span>Provider</span>
-          <input onChange={(event) => set_provider(event.target.value)} placeholder='例如 openai' value={provider} />
-        </label>
-        <label className='field'>
-          <span>Base URL</span>
-          <input onChange={(event) => set_base_url(event.target.value)} placeholder='模型服务地址' value={base_url} />
-        </label>
-        <label className='field'>
-          <span>{presentation.llm_label}</span>
-          <input onChange={(event) => set_llm_model(event.target.value)} placeholder='问答模型名称' value={llm_model} />
-        </label>
-        <label className='field'>
-          <span>{presentation.embedding_label}</span>
-          <input
-            disabled={!presentation.embedding_editable}
-            onChange={(event) => set_embedding_model(event.target.value)}
-            placeholder='向量模型名称'
-            value={embedding_model}
-          />
-        </label>
+      <div className='model-config-stack'>
+        <div className='model-endpoint-card'>
+          <header>
+            <strong>LLM 端点</strong>
+            <span>{presentation.llm_label}</span>
+          </header>
+          <div className='form-grid'>
+            <label className='field'>
+              <span>Provider</span>
+              <input onChange={(event) => set_llm_provider(event.target.value)} placeholder='提供商标识' value={llm_provider} />
+            </label>
+            <label className='field'>
+              <span>Base URL</span>
+              <input onChange={(event) => set_llm_base_url(event.target.value)} placeholder='模型服务地址' value={llm_base_url} />
+            </label>
+            <label className='field'>
+              <span>Model</span>
+              <input onChange={(event) => set_llm_model(event.target.value)} placeholder='聊天或抽取模型名' value={llm_model} />
+            </label>
+            <label className='field'>
+              <span>API Key</span>
+              <input
+                disabled={clear_llm_api_key}
+                onChange={(event) => set_llm_api_key(event.target.value)}
+                placeholder='留空则不更新'
+                type='password'
+                value={llm_api_key}
+              />
+            </label>
+          </div>
+          <div className='model-key-options'>
+            <label className='field is-inline'>
+              <span>保存时清除已保存 LLM Key</span>
+              <input checked={clear_llm_api_key} onChange={(event) => change_clear_llm_api_key(event.target.checked)} type='checkbox' />
+            </label>
+            <label className='field is-inline'>
+              <span>测试时使用已保存 LLM Key</span>
+              <input
+                checked={use_saved_llm_api_key}
+                disabled={clear_llm_api_key}
+                onChange={(event) => set_use_saved_llm_api_key(event.target.checked)}
+                type='checkbox'
+              />
+            </label>
+          </div>
+        </div>
+
+        <div className='model-endpoint-card'>
+          <header>
+            <strong>Embedding 端点</strong>
+            <span>{presentation.embedding_label}</span>
+          </header>
+          <div className='form-grid'>
+            <label className='field'>
+              <span>Provider</span>
+              <input onChange={(event) => set_embedding_provider(event.target.value)} placeholder='提供商标识' value={embedding_provider} />
+            </label>
+            <label className='field'>
+              <span>Base URL</span>
+              <input onChange={(event) => set_embedding_base_url(event.target.value)} placeholder='向量模型服务地址' value={embedding_base_url} />
+            </label>
+            <label className='field'>
+              <span>Model</span>
+              <input
+                disabled={!presentation.embedding_editable}
+                onChange={(event) => set_embedding_model(event.target.value)}
+                placeholder='向量模型名'
+                value={embedding_model}
+              />
+            </label>
+            <label className='field'>
+              <span>API Key</span>
+              <input
+                disabled={clear_embedding_api_key}
+                onChange={(event) => set_embedding_api_key(event.target.value)}
+                placeholder={same_endpoint ? '可复用 LLM Key' : '留空则不更新'}
+                type='password'
+                value={embedding_api_key}
+              />
+            </label>
+          </div>
+          <div className='model-key-options'>
+            <label className='field is-inline'>
+              <span>保存时清除已保存 Embedding Key</span>
+              <input
+                checked={clear_embedding_api_key}
+                onChange={(event) => change_clear_embedding_api_key(event.target.checked)}
+                type='checkbox'
+              />
+            </label>
+            <label className='field is-inline'>
+              <span>测试时使用已保存 Embedding Key</span>
+              <input
+                checked={use_saved_embedding_api_key}
+                disabled={clear_embedding_api_key}
+                onChange={(event) => set_use_saved_embedding_api_key(event.target.checked)}
+                type='checkbox'
+              />
+            </label>
+          </div>
+        </div>
       </div>
-
-      <label className='field'>
-        <span>API Key（留空则不更新）</span>
-        <input disabled={clear_api_key} onChange={(event) => set_api_key(event.target.value)} type='password' value={api_key} />
-      </label>
-
-      <label className='field is-inline'>
-        <span>保存时清除已存 Key</span>
-        <input checked={clear_api_key} onChange={(event) => change_clear_api_key(event.target.checked)} type='checkbox' />
-      </label>
-      <label className='field is-inline'>
-        <span>测试时使用已保存 Key</span>
-        <input checked={use_saved_api_key} onChange={(event) => set_use_saved_api_key(event.target.checked)} type='checkbox' />
-      </label>
 
       <div className='button-row'>
         <button disabled={!can_save_config} onClick={() => void save_config()} type='button'>保存配置</button>
         <button disabled={!can_test_config} onClick={() => void run_test()} type='button'>测试连接</button>
       </div>
-      {!required_model_fields_ready ? <p className='muted'>填写 Provider、Base URL 和模型名称后可保存配置。</p> : null}
-      {required_model_fields_ready && !has_test_key ? <p className='muted'>填写 API Key，或启用已保存 Key 后再测试连接。</p> : null}
+      {!required_model_fields_ready ? <p className='muted'>填写两套端点的 Provider 和模型名后才能保存配置。</p> : null}
+      {required_model_fields_ready && !can_test_config ? <p className='muted'>测试连接需要可用的 LLM Key 和 Embedding Key。</p> : null}
 
       {config ? (
-        <div className='detail-block'>
-          <strong>{presentation.status_title}</strong>
-          <div><span>Key</span><b>{config.has_api_key ? `已配置 ${config.api_key_preview ?? ''}` : '未配置'}</b></div>
-          <div><span>来源</span><b>{config.api_key_source}</b></div>
-          <div><span>重建</span><b>{config.reindex_required ? '需要' : '不需要'}</b></div>
-          {config.notice ? <div><span>提示</span><b>{config.notice}</b></div> : null}
+        <div className='model-status-grid'>
+          <div className='detail-block'>
+            <strong>LLM Key</strong>
+            <div><span>状态</span><b>{config.llm_has_api_key ? `已配置 ${config.llm_api_key_preview ?? ''}` : '未配置'}</b></div>
+            <div><span>来源</span><b>{config.llm_api_key_source}</b></div>
+            <div><span>端点</span><b>{config.llm_provider} · {config.llm_base_url}</b></div>
+          </div>
+          <div className='detail-block'>
+            <strong>Embedding Key</strong>
+            <div><span>状态</span><b>{config.embedding_has_api_key ? `已配置 ${config.embedding_api_key_preview ?? ''}` : '未配置'}</b></div>
+            <div><span>来源</span><b>{config.embedding_api_key_source}</b></div>
+            <div><span>端点</span><b>{config.embedding_provider} · {config.embedding_base_url}</b></div>
+            <div><span>重建</span><b>{config.reindex_required ? '需要' : '不需要'}</b></div>
+            {config.notice ? <div><span>提示</span><b>{config.notice}</b></div> : null}
+          </div>
         </div>
       ) : null}
 
@@ -198,7 +331,7 @@ export function ModelConfigPanel(props: ModelConfigPanelProps) {
             <div><span>模型签名</span><b>{stringify_detail(vector_check.details.model_signature)}</b></div>
           </>
         ) : (
-          <p className='muted'>就绪检查中未返回 vector_index。</p>
+          <p className='muted'>就绪检查未返回 vector_index。</p>
         )}
       </div>
 

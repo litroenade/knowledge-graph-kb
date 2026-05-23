@@ -22,7 +22,7 @@ from src.kb.ingestion.excel import (
 )
 from src.kb.ingestion.payloads import build_structured_import_item, build_text_import_item
 from src.kb.ingestion.strategy import normalize_strategy, select_strategy, split_text_by_strategy
-from src.kb.infrastructure.providers import OpenAiGateway
+from src.kb.infrastructure.providers import OpenAiConfigurationError, OpenAiGateway, OpenAiRequestError
 from src.kb.infrastructure.storage import (
     GraphStore,
     ImportJobStore,
@@ -371,7 +371,7 @@ class ImportPipeline:
             "embedding",
             (
                 f"正在为 {len(paragraph_rows)} 个段落生成向量：{source_name} | "
-                f"provider={embedding_runtime_config.provider} | "
+                f"provider={embedding_runtime_config.embedding_provider} | "
                 f"embedding_model={embedding_runtime_config.embedding_model}"
             ),
         )
@@ -772,7 +772,7 @@ class ImportPipeline:
                 "extracting",
                 (
                     f"{document_name} 正在抽取实体关系：{window_index}/{total_windows} | "
-                    f"provider={runtime_config.provider} | model={runtime_config.llm_model} | "
+                    f"provider={runtime_config.llm_provider} | model={runtime_config.llm_model} | "
                     f"chars={len(window.text)} | tokens={count_tokens(window.text)}"
                 ),
             )
@@ -811,6 +811,15 @@ class ImportPipeline:
                     len(list(partial_result.get("relations") or [])),
                 )
             except ImportCancelledError:
+                raise
+            except (OpenAiConfigurationError, OpenAiRequestError):
+                logger.exception(
+                    "实体关系抽取模型服务失败：document_name=%s file_id=%s window_index=%s total_windows=%s",
+                    document_name,
+                    file_id,
+                    window_index,
+                    total_windows,
+                )
                 raise
             except Exception as exc:  # noqa: BLE001
                 extraction_warning = (

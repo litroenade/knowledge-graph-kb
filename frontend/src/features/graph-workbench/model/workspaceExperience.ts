@@ -13,31 +13,19 @@ export interface ModelConfigPresentation {
   backend_pending_items: string[];
 }
 
-const BACKEND_PENDING_CHAT = [
-  '新增 /api/kb/config/model/chat',
-  '持久化 LLM、top-k、引用数量、检索策略',
-  'ConversationService 读取问答专属配置',
-];
-
-const BACKEND_PENDING_IMPORT = [
-  '新增 /api/kb/config/model/import',
-  '持久化 embedding、解析模型、分块参数、索引策略',
-  'ImportService 和 VectorRetriever 读取导入/索引专属配置',
-];
-
 export function get_model_config_presentation(mode: ModelConfigMode): ModelConfigPresentation {
   if (mode === 'chat') {
     return {
       mode,
       title: '问答模型配置',
-      description: '控制问答生成和检索参数。当前后端仍复用全局模型配置，embedding 只展示当前索引签名，不在问答侧修改。',
+      description: '配置问答使用的 LLM，同时保留当前检索所依赖的 Embedding 端点。',
       llm_label: '问答 LLM 模型',
-      embedding_label: '当前索引 Embedding',
-      embedding_editable: false,
+      embedding_label: '检索 Embedding 模型',
+      embedding_editable: true,
       status_title: '问答运行状态',
-      capability_title: '后端待拆分',
-      capability_body: '后续需要把问答 LLM、top-k、引用数量和检索策略从全局模型配置中拆出。',
-      backend_pending_items: BACKEND_PENDING_CHAT,
+      capability_title: '双端点配置',
+      capability_body: 'LLM 与 Embedding 可以使用不同提供商、Base URL 和 API Key。',
+      backend_pending_items: [],
     };
   }
 
@@ -45,27 +33,27 @@ export function get_model_config_presentation(mode: ModelConfigMode): ModelConfi
     return {
       mode,
       title: '导入模型配置',
-      description: '控制导入解析、embedding 和索引流程。当前后端仍复用全局模型配置，保存 embedding 变更会触发索引重建提示。',
+      description: '配置导入解析使用的 LLM 与写入索引使用的 Embedding。Embedding 变化会重置现有向量索引。',
       llm_label: '解析 / 生成模型',
       embedding_label: 'Embedding / 索引模型',
       embedding_editable: true,
       status_title: '导入索引状态',
-      capability_title: '后端待拆分',
-      capability_body: '后续需要把导入策略、分块参数、embedding 和索引任务配置拆成独立持久化语义。',
-      backend_pending_items: BACKEND_PENDING_IMPORT,
+      capability_title: '索引一致性',
+      capability_body: '保存新的 Embedding provider、Base URL 或模型名后，需要重新导入内容以生成一致的向量。',
+      backend_pending_items: [],
     };
   }
 
   return {
     mode,
     title: '模型配置',
-    description: '当前后端全局模型配置。',
+    description: '全局模型配置已拆分为 LLM 与 Embedding 两套端点。',
     llm_label: 'LLM 模型',
     embedding_label: 'Embedding 模型',
     embedding_editable: true,
     status_title: '当前状态',
-    capability_title: '向量重建',
-    capability_body: '当前后端仅有 CLI/服务层重建能力，尚未开放 HTTP 任务接口；这里先展示索引状态。',
+    capability_title: '配置说明',
+    capability_body: '对话、抽取与向量生成会分别读取对应端点；切换 Embedding 会触发向量索引重建提示。',
     backend_pending_items: [],
   };
 }
