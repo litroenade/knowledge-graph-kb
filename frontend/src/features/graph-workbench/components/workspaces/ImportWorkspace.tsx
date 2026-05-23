@@ -10,7 +10,7 @@ interface ImportWorkspaceProps {
 
 const IMPORT_FLOW_STEPS = [
   ['选择输入', '粘贴文本、上传文件或扫描目录'],
-  ['解析策略', '选择 auto、plain、table 或 openie'],
+  ['解析策略', '选择 auto、factual、narrative 或 quote'],
   ['预览确认', '提交前检查内容、文件和路径'],
   ['执行导入', '跟踪任务、分块、失败与重试'],
   ['刷新图谱', '导入完成后同步图谱数据'],

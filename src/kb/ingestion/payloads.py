@@ -45,7 +45,14 @@ def build_structured_import_item(
 ) -> dict[str, Any]:
     """构建结构化导入项。"""
 
+    relations = normalize_structured_relations(payload.get("relations"))
+    entities = infer_relation_endpoint_entities(
+        entities=normalize_structured_entities(payload.get("entities")),
+        relations=relations,
+    )
     paragraphs: list[dict[str, Any]] = normalize_structured_paragraphs(payload.get("paragraphs"))
+    if not paragraphs and (entities or relations):
+        paragraphs = build_structured_graph_paragraphs(entities=entities, relations=relations)
     text: str = "\n\n".join(paragraph["content"] for paragraph in paragraphs)
     return {
         "name": name,
@@ -56,10 +63,45 @@ def build_structured_import_item(
         "file_type": str(payload.get("file_type") or "json"),
         "storage_path": None,
         "metadata": {**(metadata or {}), "schema": str(payload.get("schema") or "structured")},
-        "structured_entities": normalize_structured_entities(payload.get("entities")),
-        "structured_relations": normalize_structured_relations(payload.get("relations")),
+        "structured_entities": entities,
+        "structured_relations": relations,
         "structured_paragraphs": paragraphs,
     }
+
+
+def build_structured_graph_paragraphs(
+    *,
+    entities: list[dict[str, Any]],
+    relations: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    lines: list[str] = []
+    if entities:
+        lines.append("Entities:")
+        for entity in entities:
+            name = str(entity["name"])
+            description = str(entity.get("description") or "").strip()
+            lines.append(f"- {name}: {description}" if description else f"- {name}")
+    if relations:
+        if lines:
+            lines.append("")
+        lines.append("Relations:")
+        for relation in relations:
+            confidence = float(relation.get("confidence") or 1.0)
+            lines.append(
+                f"- {relation['subject']} --{relation['predicate']}--> {relation['object']} "
+                f"(confidence={confidence:g})"
+            )
+    content = "\n".join(lines).strip()
+    if not content:
+        return []
+    return [
+        {
+            "position": 0,
+            "content": content,
+            "knowledge_type": "factual",
+            "metadata": {"synthetic": True, "source": "structured_graph"},
+        }
+    ]
 
 
 def normalize_structured_paragraphs(raw_value: Any) -> list[dict[str, Any]]:
@@ -77,7 +119,7 @@ def normalize_structured_paragraphs(raw_value: Any) -> list[dict[str, Any]]:
                 {
                     "position": int(item.get("position", index)),
                     "content": content,
-                    "knowledge_type": str(item.get("knowledge_type", "mixed")),
+                    "knowledge_type": str(item.get("knowledge_type") or "").strip(),
                     "metadata": dict(item.get("metadata", {})),
                 }
             )
@@ -88,7 +130,7 @@ def normalize_structured_paragraphs(raw_value: Any) -> list[dict[str, Any]]:
                 {
                     "position": index,
                     "content": content,
-                    "knowledge_type": "mixed",
+                    "knowledge_type": "",
                     "metadata": {},
                 }
             )
@@ -115,6 +157,32 @@ def normalize_structured_entities(raw_value: Any) -> list[dict[str, Any]]:
             }
         )
     return normalized_rows
+
+
+def infer_relation_endpoint_entities(
+    *,
+    entities: list[dict[str, Any]],
+    relations: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """从关系端点补齐缺失实体，避免结构化关系在写图阶段被跳过。"""
+
+    inferred_entities = list(entities)
+    known_names = {str(entity["name"]).strip().casefold() for entity in inferred_entities}
+    for relation in relations:
+        for endpoint_key in ("subject", "object"):
+            endpoint_name = str(relation.get(endpoint_key) or "").strip()
+            normalized_name = endpoint_name.casefold()
+            if not endpoint_name or normalized_name in known_names:
+                continue
+            inferred_entities.append(
+                {
+                    "name": endpoint_name,
+                    "description": "",
+                    "metadata": {"inferred_from_relation": True},
+                }
+            )
+            known_names.add(normalized_name)
+    return inferred_entities
 
 
 def normalize_structured_relations(raw_value: Any) -> list[dict[str, Any]]:

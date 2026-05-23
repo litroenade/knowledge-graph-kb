@@ -48,6 +48,9 @@ CancelChecker = Callable[[], bool]
 
 CONTENT_TYPE_EXTENSION_MAP: dict[str, str] = {
     "text/plain": ".txt",
+    "text/markdown": ".md",
+    "application/markdown": ".md",
+    "application/json": ".json",
     "application/pdf": ".pdf",
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document": ".docx",
     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": ".xlsx",
@@ -660,7 +663,9 @@ class ImportPipeline:
                 {
                     "position": index,
                     "content": str(paragraph.get("content") or "").strip(),
-                    "knowledge_type": str(paragraph.get("knowledge_type") or "mixed"),
+                    "knowledge_type": str(
+                        paragraph.get("knowledge_type") or (strategy if strategy != "auto" else "mixed")
+                    ),
                     "token_count": count_tokens(str(paragraph.get("content") or "")),
                     "vector_state": "pending",
                     "metadata": dict(paragraph.get("metadata", {})),
@@ -1720,12 +1725,13 @@ class ImportService:
         if not items:
             raise ValueError("当前操作没有生成可导入的数据项。")
         normalized_strategy = normalize_strategy(strategy)
+        normalized_items = [{**item, "strategy": normalized_strategy} for item in items]
         job = self.job_store.create_job(
             source=source,
             input_mode=input_mode,
             strategy=normalized_strategy,
             params={"source": source, "input_mode": input_mode, "strategy": normalized_strategy},
-            total_files=len(items),
+            total_files=len(normalized_items),
         )
         logger.info(
             "已创建导入任务：job_id=%s source=%s input_mode=%s strategy=%s file_count=%s",
@@ -1733,9 +1739,9 @@ class ImportService:
             source,
             input_mode,
             normalized_strategy,
-            len(items),
+            len(normalized_items),
         )
-        for item in items:
+        for item in normalized_items:
             self.job_store.create_job_file(
                 job_id=str(job["id"]),
                 name=str(item["name"]),
@@ -1745,7 +1751,7 @@ class ImportService:
                 storage_path=item.get("storage_path"),
                 metadata={**dict(item.get("metadata", {})), "retry_payload": item},
             )
-        self.executor.submit(job_id=str(job["id"]), items=items)
+        self.executor.submit(job_id=str(job["id"]), items=normalized_items)
         logger.info("导入任务已派发到执行器：job_id=%s", str(job["id"]))
         return self.get_job(str(job["id"])) or job
 

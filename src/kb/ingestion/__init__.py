@@ -12,7 +12,7 @@ IMPORT_SOURCE_KIND_DESCRIPTIONS: dict[str, str] = {
     "convert": "其他系统转换后的结构化 JSON，可携带 paragraphs/entities/relations。",
 }
 IMPORT_INPUT_MODE_DESCRIPTIONS: dict[str, str] = {
-    "file": "以文件为入口，支持 txt、pdf、docx、xlsx、xlsm、xls。",
+    "file": "以文件为入口，支持 txt、md、json、pdf、docx、xlsx、xlsm、xls。",
     "text": "以纯文本为入口，适合临时录入或快速试验。",
     "json": "以结构化 JSON 为入口，适合 OpenIE、转换结果或外部管道对接。",
 }

@@ -68,6 +68,13 @@ describe('workspace page headers', () => {
     expect_header(<ImportWorkspace on_import_finished={vi.fn()} ready={null} />, '导入中心');
     expect_header(<ChatWorkspace on_focus_node={vi.fn()} on_saved={vi.fn()} ready={null} scope={scope} />, '知识问答');
   });
+
+  it('keeps import strategy workflow copy aligned with backend strategies', () => {
+    render(<ImportWorkspace on_import_finished={vi.fn()} ready={null} />);
+
+    expect(screen.getByText('选择 auto、factual、narrative 或 quote')).toBeInTheDocument();
+    expect(screen.queryByText(/plain、table 或 openie/)).not.toBeInTheDocument();
+  });
 });
 
 function expect_header(element: JSX.Element, title: string): void {

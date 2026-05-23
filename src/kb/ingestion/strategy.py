@@ -11,6 +11,8 @@ LEGACY_IMPORT_STRATEGY_ALIASES: dict[str, str] = {
     "summary": "auto",
     "semantic": "auto",
     "hybrid": "auto",
+    "plain": "factual",
+    "table": "factual",
 }
 SPREADSHEET_EXTENSIONS: set[str] = {".xlsx", ".xlsm", ".xls"}
 QUOTE_LINE_SPLIT_PATTERN = re.compile(r"\n+")

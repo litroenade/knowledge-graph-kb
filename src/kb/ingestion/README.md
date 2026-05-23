@@ -12,7 +12,7 @@
 
 ## 输入模式
 
-- `file`: 文件入口，当前支持 `txt`、`pdf`、`docx`、`xlsx`、`xlsm`、`xls`。
+- `file`: 文件入口，当前支持 `txt`、`md`、`json`、`pdf`、`docx`、`xlsx`、`xlsm`、`xls`。
 - `text`: 纯文本入口。
 - `json`: 结构化 JSON 入口。
 

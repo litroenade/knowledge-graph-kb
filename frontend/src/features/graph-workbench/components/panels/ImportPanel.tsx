@@ -416,9 +416,9 @@ export function ImportPanel(props: ImportPanelProps) {
               <span>解析策略</span>
               <select onChange={(event) => set_strategy(event.target.value)} value={strategy}>
                 <option value='auto'>自动 auto</option>
-                <option value='plain'>纯文本 plain</option>
-                <option value='table'>表格 table</option>
-                <option value='openie'>关系抽取 openie</option>
+                <option value='factual'>事实 factual</option>
+                <option value='narrative'>叙事 narrative</option>
+                <option value='quote'>短句 quote</option>
               </select>
             </label>
           </div>

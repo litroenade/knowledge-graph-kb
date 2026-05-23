@@ -121,4 +121,22 @@ describe('ImportPanel polling', () => {
       title: '第一行标题',
     }));
   });
+
+  it('offers only backend-supported import strategies', async () => {
+    vi.useRealTimers();
+    vi.mocked(fetch_import_jobs).mockResolvedValue([]);
+
+    const view = render(<ImportPanel on_import_finished={vi.fn()} />);
+    const current_panel = within(view.container);
+
+    await waitFor(() => expect(fetch_import_jobs).toHaveBeenCalled());
+
+    const strategy_select = current_panel.getByRole('combobox') as HTMLSelectElement;
+    const option_values = Array.from(strategy_select.options).map((option) => option.value);
+
+    expect(option_values).toEqual(['auto', 'factual', 'narrative', 'quote']);
+    expect(option_values).not.toContain('plain');
+    expect(option_values).not.toContain('table');
+    expect(option_values).not.toContain('openie');
+  });
 });
